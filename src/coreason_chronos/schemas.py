@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+from math import isinf, isnan
 from typing import List, Optional
 from uuid import UUID
 
@@ -74,6 +75,16 @@ class ForecastRequest(BaseModel):
     # SOTA: Contextual Covariates
     # e.g., "Is this a holiday?"
     covariates: Optional[List[int]] = None
+
+    @field_validator("history")
+    @classmethod
+    def history_must_be_valid(cls, v: List[float]) -> List[float]:
+        if not v:
+            raise ValueError("history must not be empty")
+        for x in v:
+            if isnan(x) or isinf(x):
+                raise ValueError("history must not contain NaN or Inf values")
+        return v
 
     @field_validator("prediction_length")
     @classmethod
