@@ -48,6 +48,8 @@ class TimelineExtractor:
             "PREFER_DATES_FROM": "past",  # Default assumption? Maybe 'future' is better for "next week"?
             # Let's check logic. If doc date is 2020, and text says "next week", it should be 2020 + 7 days.
             # dateparser default is current time if not specified.
+            "TIMEZONE": "UTC",
+            "TO_TIMEZONE": "UTC",
         }
 
         # If the reference_date has a timezone, we want the output to match it or be UTC.
