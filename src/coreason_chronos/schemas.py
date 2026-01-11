@@ -88,3 +88,16 @@ class ForecastRequest(BaseModel):
         if not (0.0 < v < 1.0):
             raise ValueError("confidence_level must be between 0.0 and 1.0")
         return v
+
+
+class ForecastResult(BaseModel):
+    """
+    Result payload from the forecasting model.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    median: List[float]
+    lower_bound: List[float]
+    upper_bound: List[float]
+    confidence_level: float
