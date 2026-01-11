@@ -1,4 +1,5 @@
 # Prosperity Public License 3.0
+import re
 from datetime import datetime, timezone
 from typing import List
 from uuid import uuid4
@@ -7,6 +8,10 @@ from dateparser.search import search_dates  # type: ignore
 
 from coreason_chronos.schemas import TemporalEvent, TemporalGranularity
 from coreason_chronos.utils.logger import logger
+
+# Regex to identify snippets that are likely pure durations (e.g., "3 months")
+# and not absolute or relative points in time (e.g., "3 months ago").
+DURATION_REGEX = re.compile(r"^\d+\s+(year|month|week|day|hour|minute|second)s?$", re.IGNORECASE)
 
 
 class TimelineExtractor:
@@ -57,47 +62,49 @@ class TimelineExtractor:
             return events
 
         for source_snippet, date_obj in extracted_dates:
-            if date_obj:
-                # Ensure date_obj is timezone aware. dateparser might return naive if not configured well.
-                if date_obj.tzinfo is None:
-                    # If naive, assume it's in the same timezone as reference_date (or UTC if we enforce it)
-                    # But the requirement says "Store all dates in ISO 8601 UTC".
-                    # If we parsed "Jan 1st", it's ambiguous.
-                    # Let's assume UTC for simplicity unless specified.
-                    date_obj = date_obj.replace(tzinfo=timezone.utc)
-                else:
-                    # Convert to UTC
-                    date_obj = date_obj.astimezone(timezone.utc)
+            if not date_obj:
+                continue
 
-                # Determine Granularity
-                # dateparser doesn't explicitly return granularity.
-                # Heuristic: If time is 00:00:00 and source didn't specify time, it might be DATE_ONLY.
-                # For now, let's look at the source snippet.
-                # If "at 10pm" in snippet -> PRECISE.
-                # If just "Jan 1st" -> DATE_ONLY.
-                # This is hard to perfect without deep parsing.
-                # For this iteration, let's default to PRECISE if it has time components other than 0,
-                # or DATE_ONLY otherwise.
-                # Actually, dateparser returns a datetime.
+            # Filter out pure durations/numbers interpreted as dates (e.g., "50 years" -> 1974)
+            if DURATION_REGEX.match(source_snippet):
+                logger.debug(f"Discarding potential duration/age misidentified as date: '{source_snippet}'")
+                continue
 
-                granularity = TemporalGranularity.PRECISE
-                if (
-                    date_obj.hour == 0
-                    and date_obj.minute == 0
-                    and date_obj.second == 0
-                    and "00:00" not in source_snippet
-                ):
-                    # This is a weak heuristic but a start.
-                    granularity = TemporalGranularity.DATE_ONLY
+            # Ensure date_obj is timezone aware. dateparser might return naive if not configured well.
+            if date_obj.tzinfo is None:
+                # If naive, assume it's in the same timezone as reference_date (or UTC if we enforce it)
+                # But the requirement says "Store all dates in ISO 8601 UTC".
+                # If we parsed "Jan 1st", it's ambiguous.
+                # Let's assume UTC for simplicity unless specified.
+                date_obj = date_obj.replace(tzinfo=timezone.utc)
+            else:
+                # Convert to UTC
+                date_obj = date_obj.astimezone(timezone.utc)
 
-                event = TemporalEvent(
-                    id=uuid4(),
-                    description=f"Event associated with '{source_snippet}'",
-                    timestamp=date_obj,
-                    granularity=granularity,
-                    source_snippet=source_snippet,
-                )
-                events.append(event)
+            # Determine Granularity
+            # dateparser doesn't explicitly return granularity.
+            # Heuristic: If time is 00:00:00 and source didn't specify time, it might be DATE_ONLY.
+            # For now, let's look at the source snippet.
+            # If "at 10pm" in snippet -> PRECISE.
+            # If just "Jan 1st" -> DATE_ONLY.
+            # This is hard to perfect without deep parsing.
+            # For this iteration, let's default to PRECISE if it has time components other than 0,
+            # or DATE_ONLY otherwise.
+            # Actually, dateparser returns a datetime.
+
+            granularity = TemporalGranularity.PRECISE
+            if date_obj.hour == 0 and date_obj.minute == 0 and date_obj.second == 0 and "00:00" not in source_snippet:
+                # This is a weak heuristic but a start.
+                granularity = TemporalGranularity.DATE_ONLY
+
+            event = TemporalEvent(
+                id=uuid4(),
+                description=f"Event associated with '{source_snippet}'",
+                timestamp=date_obj,
+                granularity=granularity,
+                source_snippet=source_snippet,
+            )
+            events.append(event)
 
         logger.info(f"Extracted {len(events)} events from text.")
         return events
