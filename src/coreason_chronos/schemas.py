@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+from math import isinf, isnan
 from typing import List, Optional
 from uuid import UUID
 
@@ -75,6 +76,16 @@ class ForecastRequest(BaseModel):
     # e.g., "Is this a holiday?"
     covariates: Optional[List[int]] = None
 
+    @field_validator("history")
+    @classmethod
+    def history_must_be_valid(cls, v: List[float]) -> List[float]:
+        if not v:
+            raise ValueError("history must not be empty")
+        for x in v:
+            if isnan(x) or isinf(x):
+                raise ValueError("history must not contain NaN or Inf values")
+        return v
+
     @field_validator("prediction_length")
     @classmethod
     def prediction_length_must_be_positive(cls, v: int) -> int:
@@ -88,3 +99,16 @@ class ForecastRequest(BaseModel):
         if not (0.0 < v < 1.0):
             raise ValueError("confidence_level must be between 0.0 and 1.0")
         return v
+
+
+class ForecastResult(BaseModel):
+    """
+    Result payload from the forecasting model.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    median: List[float]
+    lower_bound: List[float]
+    upper_bound: List[float]
+    confidence_level: float

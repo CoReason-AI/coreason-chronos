@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import List
 from uuid import uuid4
 
-from dateparser.search import search_dates  # type: ignore
+from dateparser.search import search_dates
 
 from coreason_chronos.schemas import TemporalEvent, TemporalGranularity
 from coreason_chronos.utils.logger import logger
