@@ -8,10 +8,10 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_chronos
 
-import os
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+
 from coreason_chronos.utils.logger import logger
+
 
 def test_logger_initialization():
     """Test that the logger is initialized correctly and creates the log directory."""
@@ -28,6 +28,7 @@ def test_logger_initialization():
     # Verify app.log creation if it was logged to (it might be empty or not created until log)
     # logger.info("Test log")
     # assert (log_path / "app.log").exists()
+
 
 def test_logger_exports():
     """Test that logger is exported."""
