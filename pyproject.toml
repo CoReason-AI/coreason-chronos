@@ -11,6 +11,7 @@ packages = [{include = "coreason_chronos", from = "src"}]
 python = ">=3.12, <3.15"
 loguru = "^0.7.2"
 pydantic = "^2.12.5"
+dateparser = "^1.2.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"
