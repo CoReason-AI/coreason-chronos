@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from math import isinf, isnan
 from typing import List, Optional
@@ -112,3 +112,15 @@ class ForecastResult(BaseModel):
     lower_bound: List[float]
     upper_bound: List[float]
     confidence_level: float
+
+
+class ComplianceResult(BaseModel):
+    """
+    Result of a compliance check.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    is_compliant: bool
+    drift: timedelta
+    message: Optional[str] = None
