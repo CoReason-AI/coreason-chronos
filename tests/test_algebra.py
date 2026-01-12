@@ -95,3 +95,53 @@ class TestAllenAlgebra:
 
         with pytest.raises(ValueError):
             get_interval_relation(self.x_start, self.x_end, self.x_end, self.x_start)
+
+    def test_timezone_equivalence(self) -> None:
+        """Test that intervals in different timezones but representing same physical time are treated correctly."""
+        # 12:00 UTC = 07:00 EST (UTC-5)
+        est_tz = timezone(timedelta(hours=-5))
+        start_est = datetime(2024, 1, 1, 7, 0, 0, tzinfo=est_tz)
+        end_est = datetime(2024, 1, 1, 9, 0, 0, tzinfo=est_tz)
+
+        # Should be EQUALS to [12:00 UTC, 14:00 UTC]
+        assert get_interval_relation(self.x_start, self.x_end, start_est, end_est) == IntervalRelation.EQUALS
+
+    def test_microsecond_precision(self) -> None:
+        """Test high precision boundaries."""
+        # Y starts 1 microsecond AFTER X ends. Should be BEFORE, not MEETS.
+        y_start = self.x_end + timedelta(microseconds=1)
+        y_end = y_start + timedelta(hours=1)
+
+        assert get_interval_relation(self.x_start, self.x_end, y_start, y_end) == IntervalRelation.BEFORE
+
+        # Y starts exactly at X end (MEETS)
+        y_start_meets = self.x_end
+        y_end_meets = y_start_meets + timedelta(hours=1)
+        assert get_interval_relation(self.x_start, self.x_end, y_start_meets, y_end_meets) == IntervalRelation.MEETS
+
+    def test_leap_year_spanning(self) -> None:
+        """Test intervals crossing leap day (Feb 29)."""
+        # 2024 is a leap year.
+        # X: Feb 28 to Mar 1
+        x_start = datetime(2024, 2, 28, 12, 0, 0, tzinfo=timezone.utc)
+        x_end = datetime(2024, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        # Duration should be 48 hours (28th -> 29th -> 1st)
+        assert (x_end - x_start).total_seconds() == 48 * 3600
+
+        # Y: Feb 29 12:00 to Feb 29 13:00
+        y_start = datetime(2024, 2, 29, 12, 0, 0, tzinfo=timezone.utc)
+        y_end = datetime(2024, 2, 29, 13, 0, 0, tzinfo=timezone.utc)
+
+        # Y is strictly DURING X
+        assert get_interval_relation(x_start, x_end, y_start, y_end) == IntervalRelation.CONTAINS
+
+    def test_zero_duration_explicit_failure(self) -> None:
+        """Ensure that point events (duration=0) are strictly rejected as per Interval Algebra."""
+        # Point event
+        point_start = self.base
+        point_end = self.base
+
+        with pytest.raises(ValueError) as excinfo:
+            get_interval_relation(point_start, point_end, self.x_start, self.x_end)
+        assert "must be strictly before end" in str(excinfo.value)
