@@ -19,9 +19,6 @@ def test_logger_initialization() -> None:
     # Since the logger is initialized on import, we check side effects
 
     # Check if logs directory creation is handled
-    # Note: running this test might actually create the directory in the test environment
-    # if it doesn't exist.
-
     log_path = Path("logs")
     assert log_path.exists()
     assert log_path.is_dir()
