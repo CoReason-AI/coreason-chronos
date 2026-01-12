@@ -41,9 +41,15 @@ class MaxDelayRule(ValidationRule):
         if target_time.tzinfo is None or reference_time.tzinfo is None:
             raise ValueError("Both target_time and reference_time must be timezone-aware")
 
-        deadline = reference_time + self.max_delay
-        drift = target_time - deadline
-        is_compliant = target_time <= deadline
+        # Normalize to UTC for absolute time arithmetic (avoids DST wall-clock issues)
+        from datetime import timezone
+
+        ref_utc = reference_time.astimezone(timezone.utc)
+        target_utc = target_time.astimezone(timezone.utc)
+
+        deadline = ref_utc + self.max_delay
+        drift = target_utc - deadline
+        is_compliant = target_utc <= deadline
 
         message = None
         if not is_compliant:

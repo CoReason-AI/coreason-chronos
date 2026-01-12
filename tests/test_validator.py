@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -102,3 +103,119 @@ def test_mixed_timezones() -> None:
 def test_negative_delay_init_error() -> None:
     with pytest.raises(ValueError, match="non-negative"):
         MaxDelayRule(max_delay=timedelta(hours=-1))
+
+
+def test_leap_year_crossing() -> None:
+    """
+    Test delay calculation across a leap year boundary (Feb 29).
+    """
+    rule = MaxDelayRule(max_delay=timedelta(days=2))
+
+    # Reference: 2024 is a leap year. Feb 28th.
+    reference = datetime(2024, 2, 28, 12, 0, 0, tzinfo=timezone.utc)
+
+    # Deadline: Feb 28 + 2 days = March 1st. (28 -> 29 -> 1)
+
+    # Target: March 1st 12:00 UTC -> Compliant (Exact boundary)
+    target = datetime(2024, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    result = rule.validate(target, reference)
+    assert result.is_compliant is True
+    assert result.drift == timedelta(0)
+
+    # Verify non-leap year behavior for contrast
+    # 2023 is not a leap year. Feb 28 + 2 days = March 2nd.
+    reference_non_leap = datetime(2023, 2, 28, 12, 0, 0, tzinfo=timezone.utc)
+    target_non_leap = datetime(2023, 3, 2, 12, 0, 0, tzinfo=timezone.utc)
+
+    result = rule.validate(target_non_leap, reference_non_leap)
+    assert result.is_compliant is True
+    assert result.drift == timedelta(0)
+
+
+def test_dst_transition() -> None:
+    """
+    Test delay calculation crossing a DST transition.
+
+    Example: US/Eastern springs forward in March. 2am becomes 3am.
+    Gap: 2024-03-10 02:00:00 doesn't exist.
+
+    Reference: 2024-03-10 01:30:00 EST (-0500)
+    Delay: 1 hour.
+    Deadline: 02:30:00 local time... NO.
+    UTC Reference: 06:30:00 UTC.
+    UTC Deadline: 07:30:00 UTC.
+
+    If we stick to converting to UTC internally (which the code does implicitly by comparing timestamps),
+    arithmetic works on absolute time, ignoring the wall clock shift.
+
+    Target (Wall Clock): 03:30:00 EDT (-0400).
+    03:30 EDT = 07:30 UTC.
+
+    So 01:30 EST + 1 hour -> 03:30 EDT.
+    """
+    # Use ZoneInfo for proper DST handling
+    try:
+        nyc = ZoneInfo("America/New_York")
+    except Exception:
+        pytest.skip("ZoneInfo data not available")
+
+    rule = MaxDelayRule(max_delay=timedelta(hours=1))
+
+    # 1:30 AM EST on DST switch day (Spring Forward)
+    reference = datetime(2024, 3, 10, 1, 30, 0, tzinfo=nyc)
+
+    # Target: 3:30 AM EDT (which is 1 hour absolute time later)
+    target = datetime(2024, 3, 10, 3, 30, 0, tzinfo=nyc)
+
+    result = rule.validate(target, reference)
+    assert result.is_compliant is True
+    assert result.drift == timedelta(0)
+
+
+def test_microsecond_precision() -> None:
+    """
+    Test strict adherence down to microseconds.
+    """
+    rule = MaxDelayRule(max_delay=timedelta(seconds=1))
+
+    reference = datetime(2024, 1, 1, 12, 0, 0, 0, tzinfo=timezone.utc)
+
+    # Target: 1 second + 1 microsecond later -> Violation
+    target = reference + timedelta(seconds=1, microseconds=1)
+
+    result = rule.validate(target, reference)
+    assert result.is_compliant is False
+    assert result.drift == timedelta(microseconds=1)
+
+
+def test_target_before_reference() -> None:
+    """
+    Test case where target happens BEFORE reference.
+    Since delay must be positive, this should always be compliant.
+    """
+    rule = MaxDelayRule(max_delay=timedelta(hours=1))
+
+    reference = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    target = datetime(2024, 1, 1, 11, 0, 0, tzinfo=timezone.utc)
+
+    result = rule.validate(target, reference)
+    assert result.is_compliant is True
+    # Drift: 11:00 - 13:00 = -2 hours
+    assert result.drift == timedelta(hours=-2)
+
+
+def test_zero_delay_rule() -> None:
+    """
+    Test rule with 0 delay (Reference >= Target).
+    """
+    rule = MaxDelayRule(max_delay=timedelta(0))
+
+    reference = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    # Exact match -> Compliant
+    assert rule.validate(reference, reference).is_compliant is True
+
+    # 1 microsecond late -> Violation
+    target_late = reference + timedelta(microseconds=1)
+    assert rule.validate(target_late, reference).is_compliant is False
