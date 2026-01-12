@@ -195,3 +195,116 @@ def test_forecast_request_validation_errors() -> None:
             prediction_length=5,
             confidence_level=0.0,
         )
+
+
+def test_json_serialization_roundtrip() -> None:
+    """Test that objects can be serialized to JSON and back without data loss."""
+    now = datetime.now(timezone.utc)
+    event = TemporalEvent(
+        id=uuid4(),
+        description="JSON Test",
+        timestamp=now,
+        granularity=TemporalGranularity.PRECISE,
+        source_snippet="json",
+        duration_minutes=120,
+        ends_at=now + timedelta(minutes=120),
+    )
+
+    # Serialize
+    json_str = event.model_dump_json()
+    assert "timestamp" in json_str
+
+    # Deserialize
+    event_back = TemporalEvent.model_validate_json(json_str)
+    assert event_back == event
+    assert event_back.timestamp.tzinfo == timezone.utc
+
+
+def test_dst_transition_handling() -> None:
+    """Test conversion of non-UTC times around DST transitions if possible.
+    Since we can't easily rely on system timezones or external libraries like pytz/zoneinfo
+    without adding dependencies, we use a fixed offset to simulate 'non-UTC'.
+    """
+    # Create a time with -04:00 offset (e.g. EDT)
+    edt = timezone(timedelta(hours=-4))
+    dt_edt = datetime(2024, 7, 1, 12, 0, 0, tzinfo=edt)
+
+    event = TemporalEvent(
+        id=uuid4(),
+        description="DST Event",
+        timestamp=dt_edt,
+        granularity=TemporalGranularity.PRECISE,
+        source_snippet="dst",
+    )
+
+    # Should be 16:00 UTC
+    expected_utc = datetime(2024, 7, 1, 16, 0, 0, tzinfo=timezone.utc)
+    assert event.timestamp == expected_utc
+    assert event.timestamp.hour == 16
+
+
+def test_leap_year_arithmetic() -> None:
+    """Test duration calculation across a leap year boundary."""
+    # Start on Feb 28, 2024 (Leap Year)
+    start = datetime(2024, 2, 28, 12, 0, 0, tzinfo=timezone.utc)
+    # Duration: 2 days (48 hours = 2880 minutes)
+    duration_minutes = 2880
+    # Expected end: Feb 28 + 2 days = March 1? No, 2024 is leap, so Feb 29 exists.
+    # Feb 28 -> Feb 29 -> Mar 1.
+    expected_end = datetime(2024, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    event = TemporalEvent(
+        id=uuid4(),
+        description="Leap Year",
+        timestamp=start,
+        granularity=TemporalGranularity.PRECISE,
+        source_snippet="leap",
+        duration_minutes=duration_minutes,
+        ends_at=expected_end,
+    )
+    assert event.ends_at == expected_end
+
+
+def test_extreme_values_forecast() -> None:
+    """Test ForecastRequest with valid but extreme values."""
+    large_val = 1e15
+    small_val = 1e-15
+    request = ForecastRequest(
+        history=[large_val, small_val, -large_val],
+        prediction_length=1000,
+        confidence_level=0.9999,
+    )
+    assert request.history[0] == large_val
+
+
+def test_microsecond_precision() -> None:
+    """Test that microsecond precision is preserved and checked."""
+    now = datetime.now(timezone.utc)
+    # Add microseconds
+    start = now.replace(microsecond=123456)
+    duration = 1  # 1 minute
+    end = start + timedelta(minutes=1)
+
+    event = TemporalEvent(
+        id=uuid4(),
+        description="Microsecond",
+        timestamp=start,
+        granularity=TemporalGranularity.PRECISE,
+        source_snippet="micro",
+        duration_minutes=duration,
+        ends_at=end,
+    )
+    assert event.timestamp.microsecond == 123456
+
+    # Verify that incorrect microsecond fails validation
+    bad_end = end.replace(microsecond=123457)
+    with pytest.raises(ValidationError, match="Inconsistent time definition"):
+        TemporalEvent(
+            id=uuid4(),
+            description="Microsecond Fail",
+            timestamp=start,
+            granularity=TemporalGranularity.PRECISE,
+            source_snippet="micro",
+            duration_minutes=duration,
+            ends_at=bad_end,
+        )
