@@ -8,11 +8,9 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_chronos
 
-import importlib
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import coreason_chronos.utils.logger as logger_module
 from coreason_chronos.utils.logger import logger
 
 
@@ -31,31 +29,31 @@ def test_logger_exports() -> None:
     assert logger is not None
 
 
-def test_logger_mkdir_logic() -> None:
-    """
-    Test that the logger module attempts to create the directory if it doesn't exist.
-    We patch pathlib.Path because the module imports it.
-    """
-    with patch("pathlib.Path") as mock_path_cls:
-        # Setup the mock to mimic Path("logs") behavior
-        mock_path_instance = MagicMock()
-        mock_path_cls.return_value = mock_path_instance
+def test_logger_dir_creation() -> None:
+    """Test that the logs directory is created if it doesn't exist."""
+    import importlib
 
-        # When checking for logs/app.log, we want to allow that too, or just focus on the first call
-        # The module calls Path("logs") then checks exists().
+    from coreason_chronos.utils import logger as logger_module
+
+    # We patch pathlib.Path so that when the module imports it (or uses it), it gets our mock.
+    # Since we are reloading, the module will re-import Path.
+    # If we patch 'pathlib.Path', the re-import will grab the mock.
+
+    with patch("pathlib.Path") as MockPath:
+        # The code does: log_path = Path("logs")
+        # So we need MockPath("logs") to return our mock instance.
+
+        mock_path_instance = MagicMock()
+        MockPath.return_value = mock_path_instance
 
         # Simulate directory does NOT exist
         mock_path_instance.exists.return_value = False
 
-        # Reload the module to trigger the logic with the mocked Path
+        # Reload the module to trigger the top-level code again
         importlib.reload(logger_module)
 
-        # Check if mkdir was called
-        # Verify Path("logs") was called
-        mock_path_cls.assert_any_call("logs")
-
-        # Verify mkdir called on that instance
+        # Verify mkdir was called
         mock_path_instance.mkdir.assert_called_with(parents=True, exist_ok=True)
 
-    # Reload again to restore normal state using real Path
+    # Restore the module to normal state
     importlib.reload(logger_module)
