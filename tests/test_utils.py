@@ -8,6 +8,7 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_chronos
 
+import shutil
 from pathlib import Path
 
 from coreason_chronos.utils.logger import logger
@@ -25,9 +26,30 @@ def test_logger_initialization() -> None:
     assert log_path.exists()
     assert log_path.is_dir()
 
-    # Verify app.log creation if it was logged to (it might be empty or not created until log)
-    # logger.info("Test log")
-    # assert (log_path / "app.log").exists()
+
+def test_logger_directory_creation() -> None:
+    """Test that the logger creation logic handles directory creation."""
+    # We can't easily re-import the module to trigger the code,
+    # but we can verify the logic by simulating the condition if we extracted the setup function.
+    # However, since it's global scope code, we can just ensure the directory exists.
+
+    # To hit the coverage line `log_path.mkdir`, we would need to delete the directory
+    # and re-import or reload the module.
+
+    # Let's try reloading the module after deleting the directory.
+    import importlib
+
+    import coreason_chronos.utils.logger
+
+    log_path = Path("logs")
+    if log_path.exists():
+        shutil.rmtree(log_path)
+
+    assert not log_path.exists()
+
+    importlib.reload(coreason_chronos.utils.logger)
+
+    assert log_path.exists()
 
 
 def test_logger_exports() -> None:

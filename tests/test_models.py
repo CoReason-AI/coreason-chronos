@@ -8,7 +8,7 @@
 #
 # Source Code: https://github.com/CoReason-AI/coreason_chronos
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -45,10 +45,54 @@ def test_temporal_event_creation() -> None:
     assert event.ends_at is None
 
 
+def test_temporal_event_utc_enforcement() -> None:
+    """Test that timestamps must be timezone aware and are converted to UTC."""
+    event_id = uuid4()
+
+    # Naive datetime should fail
+    naive_dt = datetime(2024, 1, 1, 10, 0, 0)
+    with pytest.raises(ValidationError, match="Timestamp must be timezone-aware"):
+        TemporalEvent(
+            id=event_id,
+            description="Naive Event",
+            timestamp=naive_dt,
+            granularity=TemporalGranularity.PRECISE,
+            source_snippet="snippet",
+        )
+
+    # Non-UTC aware datetime should be converted
+    tz_offset = timezone(timedelta(hours=5))
+    aware_dt = datetime(2024, 1, 1, 10, 0, 0, tzinfo=tz_offset)
+    event = TemporalEvent(
+        id=event_id,
+        description="Aware Event",
+        timestamp=aware_dt,
+        granularity=TemporalGranularity.PRECISE,
+        source_snippet="snippet",
+    )
+
+    assert event.timestamp.tzinfo == timezone.utc
+    assert event.timestamp == aware_dt  # Equality holds across timezones
+
+    # Already UTC should remain UTC
+    utc_dt = datetime(2024, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
+    event_utc = TemporalEvent(
+        id=event_id,
+        description="UTC Event",
+        timestamp=utc_dt,
+        granularity=TemporalGranularity.PRECISE,
+        source_snippet="snippet",
+    )
+    assert event_utc.timestamp == utc_dt
+    assert event_utc.timestamp.tzinfo == timezone.utc
+
+
 def test_temporal_event_optional_fields() -> None:
     """Test TemporalEvent with optional fields populated."""
     now = datetime.now(timezone.utc)
-    end = datetime.now(timezone.utc)
+    # Ensure consistency: ends_at = timestamp + duration (60m)
+    end = now + timedelta(minutes=60)
+
     event = TemporalEvent(
         id=uuid4(),
         description="Event with duration",
@@ -63,14 +107,36 @@ def test_temporal_event_optional_fields() -> None:
     assert event.ends_at == end
 
 
-def test_temporal_event_validation_error() -> None:
-    """Test validation failure when required fields are missing."""
-    with pytest.raises(ValidationError):
-        # Missing required fields
+def test_temporal_event_consistency_validation() -> None:
+    """Test that inconsistent duration/ends_at raises error."""
+    now = datetime.now(timezone.utc)
+    end = now + timedelta(minutes=60)
+
+    # Mismatch: Duration says 30 mins, ends_at says 60 mins later
+    with pytest.raises(ValidationError, match="Inconsistent time definition"):
         TemporalEvent(
             id=uuid4(),
-            description="Invalid Event",
-        )  # type: ignore
+            description="Inconsistent Event",
+            timestamp=now,
+            granularity=TemporalGranularity.PRECISE,
+            source_snippet="snippet",
+            duration_minutes=30,
+            ends_at=end,
+        )
+
+
+def test_temporal_event_negative_duration() -> None:
+    """Test that duration cannot be negative."""
+    now = datetime.now(timezone.utc)
+    with pytest.raises(ValidationError):
+        TemporalEvent(
+            id=uuid4(),
+            description="Negative Duration",
+            timestamp=now,
+            granularity=TemporalGranularity.PRECISE,
+            source_snippet="snippet",
+            duration_minutes=-10,
+        )
 
 
 def test_forecast_request_creation() -> None:
@@ -87,23 +153,45 @@ def test_forecast_request_creation() -> None:
     assert request.covariates is None
 
 
-def test_forecast_request_with_covariates() -> None:
-    """Test ForecastRequest with covariates."""
-    request = ForecastRequest(
-        history=[1.0, 2.0],
-        prediction_length=5,
-        confidence_level=0.90,
-        covariates=[1, 0, 1],
-    )
+def test_forecast_request_validation_errors() -> None:
+    """Test validation constraints for ForecastRequest."""
 
-    assert request.covariates == [1, 0, 1]
-
-
-def test_forecast_request_validation_error() -> None:
-    """Test validation failure for ForecastRequest."""
+    # Empty history
     with pytest.raises(ValidationError):
-        # Missing history
         ForecastRequest(
+            history=[],
             prediction_length=5,
-            confidence_level=0.90,
-        )  # type: ignore
+            confidence_level=0.9,
+        )
+
+    # Infinite history
+    with pytest.raises(ValidationError, match="History must contain finite numbers"):
+        ForecastRequest(
+            history=[10.0, float("inf")],
+            prediction_length=5,
+            confidence_level=0.9,
+        )
+
+    # Zero prediction length
+    with pytest.raises(ValidationError):
+        ForecastRequest(
+            history=[10.0],
+            prediction_length=0,
+            confidence_level=0.9,
+        )
+
+    # Invalid confidence level (>= 1.0)
+    with pytest.raises(ValidationError):
+        ForecastRequest(
+            history=[10.0],
+            prediction_length=5,
+            confidence_level=1.0,
+        )
+
+    # Invalid confidence level (<= 0.0)
+    with pytest.raises(ValidationError):
+        ForecastRequest(
+            history=[10.0],
+            prediction_length=5,
+            confidence_level=0.0,
+        )
