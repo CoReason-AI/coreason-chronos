@@ -128,3 +128,39 @@ def test_timezone_conversion() -> None:
     # Should be EQUALS because they represent the same absolute time
     r = get_interval_relation(start_a, end_a, start_b, end_b)
     assert r == AllenRelation.EQUALS
+
+
+def test_microsecond_precision() -> None:
+    """Test high precision boundaries."""
+    # X: [12:00, 14:00]
+    x_start = dt(12)
+    x_end = dt(14)
+
+    # Y starts 1 microsecond AFTER X ends. Should be BEFORE, not MEETS.
+    y_start = x_end + timedelta(microseconds=1)
+    y_end = y_start + timedelta(hours=1)
+
+    assert get_interval_relation(x_start, x_end, y_start, y_end) == AllenRelation.BEFORE
+
+    # Y starts exactly at X end (MEETS)
+    y_start_meets = x_end
+    y_end_meets = y_start_meets + timedelta(hours=1)
+    assert get_interval_relation(x_start, x_end, y_start_meets, y_end_meets) == AllenRelation.MEETS
+
+
+def test_leap_year_spanning() -> None:
+    """Test intervals crossing leap day (Feb 29)."""
+    # 2024 is a leap year.
+    # X: Feb 28 to Mar 1
+    x_start = datetime(2024, 2, 28, 12, 0, 0, tzinfo=timezone.utc)
+    x_end = datetime(2024, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    # Duration should be 48 hours (28th -> 29th -> 1st)
+    assert (x_end - x_start).total_seconds() == 48 * 3600
+
+    # Y: Feb 29 12:00 to Feb 29 13:00
+    y_start = datetime(2024, 2, 29, 12, 0, 0, tzinfo=timezone.utc)
+    y_end = datetime(2024, 2, 29, 13, 0, 0, tzinfo=timezone.utc)
+
+    # Y is strictly DURING X
+    assert get_interval_relation(x_start, x_end, y_start, y_end) == AllenRelation.CONTAINS

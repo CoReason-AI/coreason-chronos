@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
+import logging
 
 from coreason_chronos.forecaster import ChronosForecaster
 from coreason_chronos.schemas import ForecastRequest, ForecastResult
@@ -99,6 +100,48 @@ def test_forecast_logic_quantiles(mock_pipeline_class: MagicMock) -> None:
     assert result.median[0] == 30.0
     assert result.lower_bound[0] == 14.0
     assert result.upper_bound[0] == 46.0
+
+
+def test_forecast_covariates_warning(mock_pipeline_class: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
+    """
+    Test that a warning is logged when covariates are provided.
+    """
+    mock_instance = mock_pipeline_class.from_pretrained.return_value
+    mock_instance.predict.return_value = torch.rand(1, 20, 3)
+
+    forecaster = ChronosForecaster()
+
+    request = ForecastRequest(
+        history=[1.0, 2.0],
+        prediction_length=3,
+        confidence_level=0.90,
+        covariates=[1, 0, 1]
+    )
+
+    # We need to capture logs. Since loguru intercepts stdlib logging if configured,
+    # or we need to use caplog if loguru propagates.
+    # The project uses loguru.
+    # To test loguru with pytest caplog, we need to make sure loguru propagates to standard logging
+    # or use a specific loguru fixture.
+    # However, usually caplog captures standard logging.
+    # The `utils.logger` sets up loguru.
+
+    # If loguru is not configured to propagate, caplog might not see it.
+    # But let's check if `utils.logger` allows propagation. It calls `logger.remove()` so it might not.
+
+    # Alternative: Use a mock logger?
+    # Or rely on the fact that we can attach a sink for testing.
+
+    # Let's try to inspect the `coreason_chronos.forecaster.logger`.
+    # But `logger` is imported from `utils.logger`.
+
+    # Simpler approach: Mock the logger in the module.
+
+    with patch("coreason_chronos.forecaster.logger") as mock_logger:
+        forecaster.forecast(request)
+        mock_logger.warning.assert_called_with(
+            "Covariates were provided but are not supported by the current Chronos implementation. They will be ignored."
+        )
 
 
 @pytest.mark.live  # type: ignore

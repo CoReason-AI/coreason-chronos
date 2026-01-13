@@ -38,6 +38,11 @@ class ChronosForecaster:
         """
         logger.debug(f"Received forecast request for {len(request.history)} history points.")
 
+        if request.covariates:
+            logger.warning(
+                "Covariates were provided but are not supported by the current Chronos implementation. They will be ignored."
+            )
+
         # Convert history to tensor
         context = torch.tensor(request.history)
 
