@@ -25,6 +25,7 @@ mkdocs = "^1.6.0"
 mkdocs-material = "^9.5.26"
 types-dateparser = "^1.2.2.20250809"
 mypy = "^1.19.1"
+types-python-dateutil = "^2.9.0.20251115"
 
 [build-system]
 requires = ["poetry-core"]
