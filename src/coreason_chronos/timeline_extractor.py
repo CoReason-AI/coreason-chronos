@@ -1,7 +1,7 @@
 # Prosperity Public License 3.0
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from dateparser.search import search_dates
@@ -57,24 +57,10 @@ class TimelineExtractor:
         if not unit.endswith("s"):
             unit += "s"
 
-        # relativedelta expects integers for days, months, etc unless we use microseconds?
-        # Actually relativedelta kwargs accept floats but it's better to be int if possible.
-        # But our regex allows float.
-        # For simplicity, if float, we might need to handle it.
-        # But relativedelta doesn't support float for 'days'.
-        # Check if int
         int_val = int(value)
         if abs(value - int_val) < 0.001:
             kwargs = {unit: int_val}
         else:
-            # Handle fractional?
-            # '2.5 days' -> 2 days + 12 hours?
-            # For now, let's round or cast to int as per standard usage, or use microseconds?
-            # The requirement says "Strict Math".
-            # If unit is days, 0.5 days = 12 hours.
-            # Let's just cast to int for AUC scope unless critical.
-            # Or use timedelta for days/hours? relativedelta is better for months/years.
-            # Let's assume int for now as user stories use integers.
             kwargs = {unit: int(value)}
 
         return relativedelta(**kwargs)  # type: ignore
@@ -99,17 +85,40 @@ class TimelineExtractor:
             )
         return candidates
 
+    def _find_closest_event(
+        self, target_start: int, target_end: int, events_meta: List[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Finds the event in events_meta that is closest to the target interval [target_start, target_end].
+        """
+        best_event = None
+        min_dist = float("inf")
+
+        for meta in events_meta:
+            # Calculate gap between [target_start, target_end] and [meta["start"], meta["end"]]
+            e_start, e_end = meta["start"], meta["end"]
+
+            # Overlap check
+            if max(target_start, e_start) < min(target_end, e_end):
+                dist = 0
+            else:
+                # Gap is distance between closest edges
+                # Case 1: Target before Event
+                if target_end <= e_start:
+                    dist = e_start - target_end
+                # Case 2: Event before Target
+                else:  # e_end <= target_start
+                    dist = target_start - e_end
+
+            if dist < min_dist:
+                min_dist = dist
+                best_event = meta
+
+        return best_event
+
     def extract_events(self, text: str, reference_date: datetime) -> List[TemporalEvent]:
         """
         Extracts events from the given text.
-
-        Args:
-            text: The unstructured text containing temporal information.
-            reference_date: The document's metadata date, used as a base for relative calculations.
-                            Must be timezone-aware.
-
-        Returns:
-            A list of TemporalEvent objects found in the text.
         """
         if reference_date.tzinfo is None:
             raise ValueError("reference_date must be timezone-aware")
@@ -125,9 +134,9 @@ class TimelineExtractor:
 
         extracted_dates = search_dates(text, languages=["en"], settings=settings)
 
-        # Intermediate storage for standard events with position info
-        # Structure: {'event': TemporalEvent, 'start': int, 'end': int, 'snippet': str}
-        standard_events_meta: List[Dict[str, Any]] = []
+        # Storage for all resolved events (Standard + Anchored) with metadata
+        # We start with Standard events
+        resolved_events_meta: List[Dict[str, Any]] = []
 
         if extracted_dates:
             search_cursor = 0
@@ -138,27 +147,21 @@ class TimelineExtractor:
                 if DURATION_REGEX.match(source_snippet):
                     continue
 
-                # Ensure UTC
                 if date_obj.tzinfo is None:
                     date_obj = date_obj.replace(tzinfo=timezone.utc)
                 else:
                     date_obj = date_obj.astimezone(timezone.utc)
 
-                # Locate in text
                 start_idx = self._find_snippet_index(text, source_snippet, search_cursor)
                 if start_idx == -1:
-                    # Should not happen if search_dates works on this text, but safeguard
-                    # If snippet appears earlier than cursor (weird), try from 0
                     start_idx = self._find_snippet_index(text, source_snippet, 0)  # pragma: no cover
 
                 if start_idx != -1:
                     end_idx = start_idx + len(source_snippet)
-                    search_cursor = start_idx + 1  # Advance cursor conservatively
+                    search_cursor = start_idx + 1
 
-                    # Extract context
                     description = self._get_context_description(text, start_idx, end_idx)
 
-                    # Determine Granularity
                     granularity = TemporalGranularity.PRECISE
                     if (
                         date_obj.hour == 0
@@ -176,89 +179,154 @@ class TimelineExtractor:
                         source_snippet=source_snippet,
                     )
 
-                    standard_events_meta.append(
-                        {"event": event, "start": start_idx, "end": end_idx, "snippet": source_snippet}
+                    resolved_events_meta.append(
+                        {
+                            "event": event,
+                            "start": start_idx,
+                            "end": end_idx,
+                            "snippet": source_snippet,
+                            "is_anchored": False,
+                        }
                     )
 
-        # Pass 2: Anchored Extraction
+        # Pass 2: Identify Anchored Candidates
         anchored_candidates = self._extract_anchored_candidates(text)
-        final_events: List[TemporalEvent] = []
 
-        # Track which standard events are actually valid (not overridden by anchored)
-        # We assume initially all are valid
-        valid_standard_indices: Set[int] = set(range(len(standard_events_meta)))
+        # 2a. Prune Standard events that overlap with Anchored candidates (prefer Anchor logic)
+        # However, if we prune them, we remove them from resolved_events_meta.
+        # But we want to prune them *only if* the Anchor logic is actually used?
+        # No, if the regex matches, it's likely a better match than dateparser's fuzzy relative.
+        # So we identify indices to remove from resolved_events_meta first.
 
-        # Process Anchored Candidates
+        indices_to_remove = set()
         for cand in anchored_candidates:
-            # Check for overlap with standard events
-            # If the anchored match overlaps significantly with a standard match,
-            # we prefer the anchored one because it has explicit logic.
             cand_range = range(cand["start"], cand["end"])
-
-            overlapping_indices = []
-            for idx, meta in enumerate(standard_events_meta):
+            for idx, meta in enumerate(resolved_events_meta):
                 meta_range = range(meta["start"], meta["end"])
-                # Check overlap
                 if set(cand_range).intersection(meta_range):
-                    overlapping_indices.append(idx)
+                    indices_to_remove.add(idx)
 
-            # Mark overlapping standard events as invalid
-            for idx in overlapping_indices:
-                valid_standard_indices.discard(idx)
+        # Rebuild resolved_events_meta without the overlapping standard events
+        # Use list comprehension to filter, but we need to track indices or just rebuild
+        resolved_events_meta = [meta for idx, meta in enumerate(resolved_events_meta) if idx not in indices_to_remove]
 
-            # Resolve Anchor
-            anchor_phrase = cand["anchor_phrase"]
+        # 2b. Iterative Resolution Loop
+        # We need to resolve anchors against `resolved_events_meta`.
+        # When an anchor is resolved, it is added to `resolved_events_meta` so subsequent anchors can find it.
 
-            # Look for the anchor in the descriptions of *valid* standard events
-            # We look in standard_events_meta (but checking if they are still considered valid?)
-            # Actually, the anchor might be another event that IS valid.
-            # Or it might be an event that was invalid? (Unlikely)
+        unresolved_candidates = list(anchored_candidates)
+        max_iterations = len(anchored_candidates) + 1  # Safe upper bound
 
-            # We search in ALL standard events derived from Pass 1.
-            # Even if we invalidated one (because it was the "2 days after" part),
-            # the anchor *target* should be valid.
+        for _ in range(max_iterations):
+            progress_made = False
+            still_unresolved = []
 
-            found_anchor_event = None
-            for idx, meta in enumerate(standard_events_meta):
-                # Don't anchor to self (the overlapped one)
-                if idx in overlapping_indices:
-                    continue
+            for cand in unresolved_candidates:
+                anchor_phrase = cand["anchor_phrase"]
+                cand_start = cand["start"]
+                cand_end = cand["end"]
 
-                # Check if anchor phrase is in the description
-                # Using case-insensitive check
-                # meta["event"] is TemporalEvent
-                current_event: TemporalEvent = meta["event"]
-                if anchor_phrase.lower() in current_event.description.lower():
-                    found_anchor_event = current_event
-                    break
+                # Search for occurrences of anchor_phrase in text
+                # We want occurrences that are NOT inside the candidate string itself?
+                # Actually, "anchor_phrase" is a substring of "full_match" (candidate string).
+                # We want to find *other* occurrences of "anchor_phrase" in the text,
+                # OR we rely on the fact that an event should be *at* that location.
 
-            if found_anchor_event:
-                # Calculate new date
-                delta = self._parse_duration(cand["duration_val"], cand["unit"])
-                if cand["direction"] == "after":
-                    new_time = found_anchor_event.timestamp + delta
-                else:  # before
-                    new_time = found_anchor_event.timestamp - delta
+                # Wait. "Middle 2 days after Start."
+                # Anchor: "Start".
+                # We want to find the event associated with "Start".
+                # There is an event at "Start on Jan 1".
+                # The word "Start" is at index 0.
+                # The event "Jan 1" is at index 9.
+                # The word "Start" is near the event "Jan 1".
 
-                # Create new event
-                new_event = TemporalEvent(
-                    id=uuid4(),
-                    description=f"Derived from anchor '{cand['full_match']}' linked to {found_anchor_event.id}",
-                    timestamp=new_time,
-                    # Inherit granularity? Or Precise? Delta makes it precise-ish.
-                    granularity=found_anchor_event.granularity,
-                    source_snippet=cand["full_match"],
-                )
-                final_events.append(new_event)
-                logger.info(f"Resolved anchored event '{cand['full_match']}' to {new_time}")
-            else:
-                logger.warning(f"Could not resolve anchor '{anchor_phrase}' for snippet '{cand['full_match']}'")
+                # Strategy:
+                # 1. Find all occurrences of anchor_phrase in text.
+                # 2. Filter out the one that is inside the candidate's own span (e.g. "after Start").
+                # 3. For each valid occurrence, find the closest event in `resolved_events_meta`.
+                # 4. Pick the global closest match.
 
-        # Add valid standard events to final list
-        for idx in valid_standard_indices:
-            final_events.append(standard_events_meta[idx]["event"])
+                best_match_event = None
+                min_dist_global = float("inf")
 
-        # Sort by timestamp
+                # Find occurrences
+                pattern = re.escape(anchor_phrase)
+                # We iterate manually to get indices
+                for m in re.finditer(pattern, text, re.IGNORECASE):
+                    occ_start = m.start()
+                    occ_end = m.end()
+
+                    # Check if this occurrence overlaps with the candidate's own span (the "after X" part)
+                    # cand["start"] is start of "2 days after Start"
+                    # cand["end"] is end of "2 days after Start"
+                    # The anchor phrase IS inside the candidate span.
+                    # Wait. "2 days after Start". The word "Start" is at the end of this string.
+                    # We are looking for the *target* "Start".
+                    # If the text says: "Start on Jan 1. Middle 2 days after Start."
+                    # Occurrences of "Start":
+                    # 1. Index 0 ("Start on Jan 1") -> Linked to Event "Jan 1"
+                    # 2. Index 37 ("... after Start") -> Inside candidate.
+
+                    # So we exclude occurrences inside [cand_start, cand_end].
+                    if max(cand_start, occ_start) < min(cand_end, occ_end):
+                        continue
+
+                    # Valid occurrence. Find closest event.
+                    match_meta = self._find_closest_event(occ_start, occ_end, resolved_events_meta)
+                    if match_meta:
+                        # Re-calculate distance logic (duplicated from _find_closest_event for global comparison)
+                        e_start, e_end = match_meta["start"], match_meta["end"]
+
+                        if max(occ_start, e_start) < min(occ_end, e_end):
+                            dist = 0
+                        elif occ_end <= e_start:
+                            dist = e_start - occ_end
+                        else:
+                            dist = occ_start - e_end
+
+                        if dist < min_dist_global:
+                            min_dist_global = dist
+                            best_match_event = match_meta["event"]
+
+                # If we found a match, resolve
+                if best_match_event:
+                    delta = self._parse_duration(cand["duration_val"], cand["unit"])
+                    if cand["direction"] == "after":
+                        new_time = best_match_event.timestamp + delta
+                    else:
+                        new_time = best_match_event.timestamp - delta
+
+                    new_event = TemporalEvent(
+                        id=uuid4(),
+                        description=f"Derived from anchor '{cand['full_match']}' linked to {best_match_event.id}",
+                        timestamp=new_time,
+                        granularity=best_match_event.granularity,
+                        source_snippet=cand["full_match"],
+                    )
+
+                    resolved_events_meta.append(
+                        {
+                            "event": new_event,
+                            "start": cand_start,
+                            "end": cand_end,
+                            "snippet": cand["full_match"],
+                            "is_anchored": True,
+                        }
+                    )
+                    logger.info(f"Resolved anchored event '{cand['full_match']}' to {new_time}")
+                    progress_made = True
+                else:
+                    still_unresolved.append(cand)
+
+            unresolved_candidates = still_unresolved
+            if not progress_made or not unresolved_candidates:
+                break
+
+        # Log remaining unresolved
+        for cand in unresolved_candidates:
+            logger.warning(f"Could not resolve anchor '{cand['anchor_phrase']}' for snippet '{cand['full_match']}'")
+
+        final_events = [meta["event"] for meta in resolved_events_meta]
         final_events.sort(key=lambda x: x.timestamp)
 
         logger.info(f"Extracted {len(final_events)} events from text.")
