@@ -116,6 +116,40 @@ class TimelineExtractor:
 
         return best_event
 
+    def _calculate_semantic_score(self, anchor: str, target_text: str) -> float:
+        """
+        Calculates a semantic match score between the anchor phrase and the target text.
+        Returns a float between 0.0 and 1.0.
+        """
+
+        def normalize(s: str) -> set[str]:
+            # Simple tokenization: lower case, remove punctuation, split by space
+            clean = re.sub(r"[^\w\s]", "", s.lower())
+            return set(clean.split())
+
+        anchor_tokens = normalize(anchor)
+        target_tokens = normalize(target_text)
+
+        # Remove common stop words (very basic)
+        stop_words = {"the", "a", "an", "of", "to", "in", "on", "at", "for", "with", "by"}
+        anchor_tokens -= stop_words
+        target_tokens -= stop_words
+
+        if not anchor_tokens:
+            return 0.0
+
+        # Check intersection
+        intersection = anchor_tokens.intersection(target_tokens)
+
+        # Calculate Jaccard similarity or Overlap Coefficient?
+        # Requirement: "anchor is inside target".
+        # Overlap = len(intersection) / len(anchor_tokens)
+        # This penalizes anchor tokens missing from target, but doesn't penalize extra target tokens.
+        # This is appropriate for "anchor resolution".
+
+        ratio = len(intersection) / len(anchor_tokens)
+        return ratio
+
     def extract_events(self, text: str, reference_date: datetime) -> List[TemporalEvent]:
         """
         Extracts events from the given text.
@@ -288,6 +322,111 @@ class TimelineExtractor:
                             min_dist_global = dist
                             best_match_event = match_meta["event"]
 
+                # Strategy B: Semantic/Fuzzy Match against resolved events
+                # We collect all candidates with score >= 0.5, then sort by Score (DESC), then Distance (ASC).
+
+                fuzzy_candidates = []
+
+                for meta in resolved_events_meta:
+                    evt = meta["event"]
+
+                    # Mask anchor text from description to avoid self-matching if contexts overlap
+                    # Re-calculate context window bounds (assuming default window=50)
+                    window = 50
+                    # Note: meta["end"] is end of snippet
+                    # evt.description was extracted from [ctx_start : ctx_end]
+                    # But we don't have ctx_end stored.
+                    # And `_get_context_description` strips whitespace, so indices might shift slightly?
+                    # "snippet = text[ctx_start:ctx_end].strip()"
+                    # Using indices directly on the original text is safer if we want to extract a "clean" description.
+
+                    # Instead of trying to patch the existing description string,
+                    # let's extract a fresh description from text that excludes the anchor span.
+
+                    # Check if anchor overlaps with the context window
+                    d_start = max(0, meta["start"] - window)
+                    d_end = min(len(text), meta["end"] + window)
+
+                    # Anchor span
+                    c_start, c_end = cand_start, cand_end
+
+                    # If overlap
+                    if max(d_start, c_start) < min(d_end, c_end):
+                        # Construct a masked text snippet
+                        # We want text[d_start:d_end] but with text[c_start:c_end] removed (or replaced with space)
+
+                        # Relative indices in the window
+                        # The actual description might be smaller due to strip(), so let's just use the raw text
+                        # window for scoring. It's cleaner.
+
+                        # Build the text segment
+                        # Part 1: [d_start, max(d_start, c_start)]
+                        p1_end = max(d_start, c_start)
+                        part1 = text[d_start:p1_end]
+
+                        # Part 2: [min(d_end, c_end), d_end]
+                        p2_start = min(d_end, c_end)
+                        part2 = text[p2_start:d_end]
+
+                        masked_desc = (part1 + " " + part2).strip().replace("\n", " ")
+                    else:
+                        masked_desc = evt.description
+
+                    # Calculate max score from description or snippet
+                    score_desc = self._calculate_semantic_score(anchor_phrase, masked_desc)
+                    score_snip = self._calculate_semantic_score(anchor_phrase, evt.source_snippet)
+                    score = max(score_desc, score_snip)
+
+                    if score >= 0.5:
+                        # Calculate distance
+                        if cand_start > meta["start"]:
+                            dist = cand_start - meta["end"]
+                        else:
+                            dist = meta["start"] - cand_end
+                        dist = max(0, dist)
+
+                        fuzzy_candidates.append({"event": evt, "score": score, "dist": dist})
+
+                if fuzzy_candidates:
+                    # Sort by Score DESC, then Distance ASC
+                    # Using tuple (-score, dist)
+                    fuzzy_candidates.sort(key=lambda x: (-x["score"], x["dist"]))
+
+                    best_candidate = fuzzy_candidates[0]
+
+                    # If we already have a `best_match_event` from exact text match (Strategy A),
+                    # Strategy A usually implies score 1.0 (exact match) and close distance.
+                    # But Strategy A logic matched "anchor phrase" in RAW TEXT.
+                    # If that match was "better" than fuzzy match?
+                    # Currently, Strategy A updates `min_dist_global` and `best_match_event`.
+                    # If Strategy A found something, it's likely very specific.
+                    # But let's say Strategy A found "Third Infusion" (distance 30) because "infusion" matched?
+                    # No, Strategy A matches the WHOLE anchor phrase "the second infusion".
+                    # If "the second infusion" is in the text, it's a 100% match.
+                    # So Strategy A is basically a Score=1.0 match.
+                    # So we only need Fuzzy if Strategy A failed OR if Fuzzy finds a "better" 1.0 match?
+                    # If Strategy A found something, min_dist_global is set.
+                    # If we found a fuzzy candidate, we should compare.
+
+                    # Let's say we assume exact textual match is Score=1.0.
+                    # Compare best_candidate vs best_match_event (from Strategy A).
+
+                    if best_match_event:
+                        # Existing best has effective score 1.0 (exact string match in text)
+                        # And distance `min_dist_global`.
+                        # New candidate has `best_candidate['score']` and `best_candidate['dist']`.
+
+                        # If new score < 1.0, keep existing (since existing is 1.0).
+                        # If new score == 1.0, compare distances.
+                        if best_candidate["score"] >= 1.0:
+                            if best_candidate["dist"] < min_dist_global:
+                                best_match_event = best_candidate["event"]
+                                # Update min_dist_global?
+                                min_dist_global = best_candidate["dist"]
+                    else:
+                        best_match_event = best_candidate["event"]
+                        min_dist_global = best_candidate["dist"]
+
                 # If we found a match, resolve
                 if best_match_event:
                     delta = self._parse_duration(cand["duration_val"], cand["unit"])
@@ -298,7 +437,7 @@ class TimelineExtractor:
 
                     new_event = TemporalEvent(
                         id=uuid4(),
-                        description=f"Derived from anchor '{cand['full_match']}' linked to {best_match_event.id}",
+                        description=f"Derived from anchor '{cand['full_match']}' linked to {best_match_event.description[:20]}...",  # noqa: E501
                         timestamp=new_time,
                         granularity=best_match_event.granularity,
                         source_snippet=cand["full_match"],
