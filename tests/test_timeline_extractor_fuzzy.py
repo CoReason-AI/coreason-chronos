@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
+
 from coreason_chronos.timeline_extractor import TimelineExtractor
+
 
 def test_story_a_fuzzy_match() -> None:
     """
@@ -10,7 +12,7 @@ def test_story_a_fuzzy_match() -> None:
     It requires matching "the second infusion" to "Second Infusion Date".
     """
     text = "Clinical Notes. Second Infusion Date: 2024-06-10. Patient felt nausea 2 days after the second infusion."
-    ref_date = datetime(2024, 6, 20, tzinfo=timezone.utc) # Ref date after events
+    ref_date = datetime(2024, 6, 20, tzinfo=timezone.utc)  # Ref date after events
 
     extractor = TimelineExtractor()
     events = extractor.extract_events(text, ref_date)
@@ -29,7 +31,10 @@ def test_story_a_fuzzy_match() -> None:
 
     assert infusion.timestamp == datetime(2024, 6, 10, tzinfo=timezone.utc)
     assert nausea.timestamp == datetime(2024, 6, 12, tzinfo=timezone.utc)
-    assert "nausea" in nausea.description or "nausea" in nausea.source_snippet or "derived" in nausea.description.lower()
+    assert (
+        "nausea" in nausea.description or "nausea" in nausea.source_snippet or "derived" in nausea.description.lower()
+    )
+
 
 def test_fuzzy_match_anchor_before_event() -> None:
     """
