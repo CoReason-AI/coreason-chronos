@@ -116,6 +116,35 @@ class TimelineExtractor:
 
         return best_event
 
+    def _is_semantic_match(self, anchor: str, target_text: str) -> bool:
+        """
+        Checks if the anchor phrase semantically matches the target text.
+        Uses token overlap.
+        """
+
+        def normalize(s: str) -> set[str]:
+            # Simple tokenization: lower case, remove punctuation, split by space
+            clean = re.sub(r"[^\w\s]", "", s.lower())
+            return set(clean.split())
+
+        anchor_tokens = normalize(anchor)
+        target_tokens = normalize(target_text)
+
+        # Remove common stop words (very basic)
+        stop_words = {"the", "a", "an", "of", "to", "in", "on", "at", "for", "with", "by"}
+        anchor_tokens -= stop_words
+        target_tokens -= stop_words
+
+        if not anchor_tokens:
+            return False
+
+        # Check intersection
+        intersection = anchor_tokens.intersection(target_tokens)
+
+        # Criteria: At least 50% of anchor tokens must be in target
+        ratio = len(intersection) / len(anchor_tokens)
+        return ratio >= 0.5
+
     def extract_events(self, text: str, reference_date: datetime) -> List[TemporalEvent]:
         """
         Extracts events from the given text.
@@ -288,6 +317,41 @@ class TimelineExtractor:
                             min_dist_global = dist
                             best_match_event = match_meta["event"]
 
+                # Strategy B: Semantic/Fuzzy Match against resolved events
+                # If textual match failed (or even if it succeeded, we might want to check this),
+                # but let's treat this as a fallback or a competing strategy.
+                # In strict "Story A", textual match fails.
+
+                # We want to match against event descriptions
+                for meta in resolved_events_meta:
+                    evt = meta["event"]
+                    # Check description and source snippet
+                    if self._is_semantic_match(anchor_phrase, evt.description) or self._is_semantic_match(
+                        anchor_phrase, evt.source_snippet
+                    ):
+                        # If match, we need a tie-breaker if multiple match.
+                        # For now, pick the first or closest?
+                        # Let's pick the one with highest overlap?
+                        # _is_semantic_match returns bool.
+                        # Let's just pick the first one found for now, or the closest in text?
+                        # "Closest in text" is defined by meta['start'].
+
+                        # Distance from anchor occurrence (cand_start) to event (meta['start'])
+                        if cand_start > meta["start"]:
+                            dist = cand_start - meta["end"]
+                        else:
+                            dist = meta["start"] - cand_end
+                        dist = max(0, dist)
+
+                        # Compare with best_semantic_event
+                        # We need to track best_semantic_dist
+                        # Initialize in outer scope if needed, but let's do it locally here.
+                        # Actually, we should integrate with best_match_event logic.
+
+                        if dist < min_dist_global:
+                            min_dist_global = dist
+                            best_match_event = evt
+
                 # If we found a match, resolve
                 if best_match_event:
                     delta = self._parse_duration(cand["duration_val"], cand["unit"])
@@ -298,7 +362,7 @@ class TimelineExtractor:
 
                     new_event = TemporalEvent(
                         id=uuid4(),
-                        description=f"Derived from anchor '{cand['full_match']}' linked to {best_match_event.id}",
+                        description=f"Derived from anchor '{cand['full_match']}' linked to {best_match_event.description[:20]}...",  # noqa: E501
                         timestamp=new_time,
                         granularity=best_match_event.granularity,
                         source_snippet=cand["full_match"],
