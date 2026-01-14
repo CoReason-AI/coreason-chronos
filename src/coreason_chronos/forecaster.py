@@ -40,7 +40,8 @@ class ChronosForecaster:
 
         if request.covariates:
             logger.warning(
-                "Covariates were provided but are not supported by the current Chronos implementation. They will be ignored."
+                "Covariates were provided but are not supported by the current Chronos implementation."
+                " They will be ignored."
             )
 
         # Convert history to tensor

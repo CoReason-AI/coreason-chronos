@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Optional
 
 from coreason_chronos.schemas import TemporalEvent
 from coreason_chronos.utils.logger import logger
@@ -196,6 +195,7 @@ class CausalityEngine:
 
         is_plausible = relation in plausible_relations
         logger.debug(
-            f"Checking causality: '{cause.description}' vs '{effect.description}' -> {relation} -> Plausible: {is_plausible}"
+            f"Checking causality: '{cause.description}' vs '{effect.description}' -> {relation}"
+            f" -> Plausible: {is_plausible}"
         )
         return is_plausible

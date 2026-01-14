@@ -1,8 +1,6 @@
 from datetime import datetime, timedelta, timezone
-from uuid import uuid4
 from unittest.mock import patch
-
-import pytest
+from uuid import uuid4
 
 from coreason_chronos.causality import CausalityEngine
 from coreason_chronos.schemas import TemporalEvent, TemporalGranularity
@@ -13,9 +11,7 @@ class TestCausalityEngine:
         self.engine = CausalityEngine()
         self.base = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
-    def _create_event(
-        self, description: str, offset_start_hours: float, duration_minutes: int = 60
-    ) -> TemporalEvent:
+    def _create_event(self, description: str, offset_start_hours: float, duration_minutes: int = 60) -> TemporalEvent:
         start = self.base + timedelta(hours=offset_start_hours)
         return TemporalEvent(
             id=uuid4(),
@@ -74,7 +70,7 @@ class TestCausalityEngine:
 
         # Cause at 12:00, Effect at 12:01 -> Plausible
         cause = self._create_event("Point Cause", 0, 0)
-        effect = self._create_event("Point Effect", 0.02, 0) # 1.2 min later
+        effect = self._create_event("Point Effect", 0.02, 0)  # 1.2 min later
         assert self.engine.is_plausible_cause(cause, effect) is True
 
         # Cause at 12:01, Effect at 12:00 -> Implausible
