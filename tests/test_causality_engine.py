@@ -91,3 +91,19 @@ class TestCausalityEngine:
 
         with patch("coreason_chronos.causality.CausalityEngine.get_relation", side_effect=ValueError("Test Error")):
             assert self.engine.is_plausible_cause(cause, effect) is False
+
+    def test_explicit_ends_at(self) -> None:
+        """Test event with explicit ends_at instead of duration."""
+        start = self.base
+        end = self.base + timedelta(hours=1)
+        event = TemporalEvent(
+            id=uuid4(),
+            description="Explicit End",
+            timestamp=start,
+            ends_at=end,
+            granularity=TemporalGranularity.PRECISE,
+            source_snippet="test"
+        )
+
+        # Self-relation should be EQUALS
+        assert self.engine.get_relation(event, event) == "EQUALS"

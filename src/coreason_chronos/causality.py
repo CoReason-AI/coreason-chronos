@@ -101,21 +101,7 @@ def get_interval_relation(start_a: datetime, end_a: datetime, start_b: datetime,
         return AllenRelation.CONTAINS
 
     # 13. EQUALS (A = B): A and B start and end together
-    if start_a == start_b and end_a == end_b:
-        return AllenRelation.EQUALS
-
-    # Should be unreachable if logic is complete, but let's see.
-    # Are there any other cases?
-    # Logic covers:
-    # Disjoint: Before, After
-    # Touching: Meets, Met By
-    # Overlapping boundaries: Overlaps, Overlapped By
-    # Matching Start: Starts, Started By, Equals
-    # Matching End: Finishes, Finished By, Equals
-    # Nested: During, Contains
-
-    # It seems complete.
-    raise ValueError("Unable to determine relation. This code path should be unreachable.")  # pragma: no cover
+    return AllenRelation.EQUALS
 
 
 class CausalityEngine:
