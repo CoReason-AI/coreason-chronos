@@ -116,8 +116,8 @@ class TestCausalityEngine:
         utc_start = self.base
 
         # JST (UTC+9) Time: 21:00 (Same as 12:00 UTC)
-        jst_tz = timezone(timedelta(hours=9))
-        jst_start = datetime(2024, 1, 1, 21, 0, 0, tzinfo=jst_tz)
+        # jst_start was unused, removing it or using it?
+        # The test logic didn't use it for the first assertion.
 
         # EST (UTC-5) Time: 07:00 (Same as 12:00 UTC)
         est_tz = timezone(timedelta(hours=-5))
@@ -126,21 +126,34 @@ class TestCausalityEngine:
         # Cause in EST (07:00 = 12:00 UTC), Effect in UTC (12:00)
         # Should be EQUALS/STARTS -> Plausible
         cause = TemporalEvent(
-            id=uuid4(), description="Cause EST", timestamp=est_start, duration_minutes=60,
-            granularity=TemporalGranularity.PRECISE, source_snippet="test"
+            id=uuid4(),
+            description="Cause EST",
+            timestamp=est_start,
+            duration_minutes=60,
+            granularity=TemporalGranularity.PRECISE,
+            source_snippet="test",
         )
         effect = TemporalEvent(
-            id=uuid4(), description="Effect UTC", timestamp=utc_start, duration_minutes=60,
-            granularity=TemporalGranularity.PRECISE, source_snippet="test"
+            id=uuid4(),
+            description="Effect UTC",
+            timestamp=utc_start,
+            duration_minutes=60,
+            granularity=TemporalGranularity.PRECISE,
+            source_snippet="test",
         )
         assert self.engine.is_plausible_cause(cause, effect) is True
 
         # Cause in UTC (12:00), Effect in JST (20:00 = 11:00 UTC)
         # 12:00 > 11:00 -> Implausible (Cause happens AFTER Effect)
+        jst_tz = timezone(timedelta(hours=9))
         jst_early = datetime(2024, 1, 1, 20, 0, 0, tzinfo=jst_tz)
         effect_early = TemporalEvent(
-            id=uuid4(), description="Effect JST Early", timestamp=jst_early, duration_minutes=60,
-            granularity=TemporalGranularity.PRECISE, source_snippet="test"
+            id=uuid4(),
+            description="Effect JST Early",
+            timestamp=jst_early,
+            duration_minutes=60,
+            granularity=TemporalGranularity.PRECISE,
+            source_snippet="test",
         )
         assert self.engine.is_plausible_cause(cause, effect_early) is False
 
@@ -161,7 +174,7 @@ class TestCausalityEngine:
             duration_minutes=duration,
             ends_at=explicit_end,
             granularity=TemporalGranularity.PRECISE,
-            source_snippet="test"
+            source_snippet="test",
         )
 
         # If it used duration, it would be [12:00, 17:00].
@@ -169,9 +182,10 @@ class TestCausalityEngine:
 
         # Compare with an event at 13:00-14:00.
         # If precedence is ends_at: [12,13] meets [13,14] -> MEETS
-        # If precedence is duration: [12,17] overlaps [13,14] -> CONTAINS/OVERLAPS? [13,14] is inside [12,17] -> CONTAINS.
+        # If precedence is duration: [12,17] overlaps [13,14] -> CONTAINS/OVERLAPS?
+        # [13,14] is inside [12,17] -> CONTAINS.
 
-        target_event = self._create_event("Target", 1, 60) # [13:00, 14:00]
+        target_event = self._create_event("Target", 1, 60)  # [13:00, 14:00]
 
         relation = self.engine.get_relation(event, target_event)
 
