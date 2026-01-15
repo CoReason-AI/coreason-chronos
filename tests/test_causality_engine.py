@@ -107,3 +107,92 @@ class TestCausalityEngine:
 
         # Self-relation should be EQUALS
         assert self.engine.get_relation(event, event) == "EQUALS"
+
+    def test_timezone_crossing_plausibility(self) -> None:
+        """
+        Test that is_plausible_cause respects absolute time across timezones.
+        """
+        # UTC Time: 12:00
+        utc_start = self.base
+
+        # JST (UTC+9) Time: 21:00 (Same as 12:00 UTC)
+        jst_tz = timezone(timedelta(hours=9))
+        jst_start = datetime(2024, 1, 1, 21, 0, 0, tzinfo=jst_tz)
+
+        # EST (UTC-5) Time: 07:00 (Same as 12:00 UTC)
+        est_tz = timezone(timedelta(hours=-5))
+        est_start = datetime(2024, 1, 1, 7, 0, 0, tzinfo=est_tz)
+
+        # Cause in EST (07:00 = 12:00 UTC), Effect in UTC (12:00)
+        # Should be EQUALS/STARTS -> Plausible
+        cause = TemporalEvent(
+            id=uuid4(), description="Cause EST", timestamp=est_start, duration_minutes=60,
+            granularity=TemporalGranularity.PRECISE, source_snippet="test"
+        )
+        effect = TemporalEvent(
+            id=uuid4(), description="Effect UTC", timestamp=utc_start, duration_minutes=60,
+            granularity=TemporalGranularity.PRECISE, source_snippet="test"
+        )
+        assert self.engine.is_plausible_cause(cause, effect) is True
+
+        # Cause in UTC (12:00), Effect in JST (20:00 = 11:00 UTC)
+        # 12:00 > 11:00 -> Implausible (Cause happens AFTER Effect)
+        jst_early = datetime(2024, 1, 1, 20, 0, 0, tzinfo=jst_tz)
+        effect_early = TemporalEvent(
+            id=uuid4(), description="Effect JST Early", timestamp=jst_early, duration_minutes=60,
+            granularity=TemporalGranularity.PRECISE, source_snippet="test"
+        )
+        assert self.engine.is_plausible_cause(cause, effect_early) is False
+
+    def test_interval_resolution_precedence(self) -> None:
+        """
+        Test that ends_at takes precedence over duration_minutes in _resolve_interval.
+        """
+        start = self.base
+        # Duration says 5 hours (ends 17:00)
+        duration = 300
+        # ends_at says 1 hour (ends 13:00)
+        explicit_end = self.base + timedelta(hours=1)
+
+        event = TemporalEvent(
+            id=uuid4(),
+            description="Ambiguous Event",
+            timestamp=start,
+            duration_minutes=duration,
+            ends_at=explicit_end,
+            granularity=TemporalGranularity.PRECISE,
+            source_snippet="test"
+        )
+
+        # If it used duration, it would be [12:00, 17:00].
+        # If it uses ends_at, it is [12:00, 13:00].
+
+        # Compare with an event at 13:00-14:00.
+        # If precedence is ends_at: [12,13] meets [13,14] -> MEETS
+        # If precedence is duration: [12,17] overlaps [13,14] -> CONTAINS/OVERLAPS? [13,14] is inside [12,17] -> CONTAINS.
+
+        target_event = self._create_event("Target", 1, 60) # [13:00, 14:00]
+
+        relation = self.engine.get_relation(event, target_event)
+
+        # Expecting MEETS because logic checks ends_at first
+        assert relation == "MEETS"
+
+    def test_causality_transitivity(self) -> None:
+        """
+        Test chain of events A -> B -> C.
+        """
+        # A: 10:00-11:00
+        event_a = self._create_event("A", -2, 60)
+        # B: 11:00-12:00
+        event_b = self._create_event("B", -1, 60)
+        # C: 12:00-13:00
+        event_c = self._create_event("C", 0, 60)
+
+        # A meets B (Plausible)
+        assert self.engine.is_plausible_cause(event_a, event_b) is True
+        # B meets C (Plausible)
+        assert self.engine.is_plausible_cause(event_b, event_c) is True
+
+        # A before C (Plausible)
+        assert self.engine.is_plausible_cause(event_a, event_c) is True

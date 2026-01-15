@@ -120,6 +120,32 @@ def test_forecast_covariates_warning(mock_pipeline_class: MagicMock, caplog: pyt
         )
 
 
+def test_forecast_no_warning_when_covariates_none_or_empty(
+    mock_pipeline_class: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """
+    Test that NO warning is logged when covariates are None or empty.
+    """
+    mock_instance = mock_pipeline_class.from_pretrained.return_value
+    mock_instance.predict.return_value = torch.rand(1, 20, 3)
+
+    forecaster = ChronosForecaster()
+
+    # Case 1: None
+    request_none = ForecastRequest(history=[1.0], prediction_length=3, confidence_level=0.90, covariates=None)
+
+    with patch("coreason_chronos.forecaster.logger") as mock_logger:
+        forecaster.forecast(request_none)
+        mock_logger.warning.assert_not_called()
+
+    # Case 2: Empty List
+    request_empty = ForecastRequest(history=[1.0], prediction_length=3, confidence_level=0.90, covariates=[])
+
+    with patch("coreason_chronos.forecaster.logger") as mock_logger:
+        forecaster.forecast(request_empty)
+        mock_logger.warning.assert_not_called()
+
+
 @pytest.mark.live  # type: ignore
 def test_forecast_integration_real_model() -> None:
     """
