@@ -125,3 +125,71 @@ class TestChronosTimekeeper:
 
         assert result is True
         mock_causal.is_plausible_cause.assert_called_with(evt_a, evt_b)
+
+    def test_full_workflow_extract_validate_cause(
+        self, mock_components: tuple[MagicMock, MagicMock, MagicMock]
+    ) -> None:
+        """
+        Test a realistic workflow: Extract 2 events, check causality, then check compliance.
+        """
+        mock_ext, _, mock_causal = mock_components
+        agent = ChronosTimekeeper()
+
+        # 1. Setup Mock Extraction
+        evt_start = TemporalEvent(
+            id=uuid4(),
+            description="Start",
+            timestamp=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
+            granularity=TemporalGranularity.PRECISE,
+            source_snippet="Start at 10:00",
+        )
+        evt_end = TemporalEvent(
+            id=uuid4(),
+            description="End",
+            timestamp=datetime(2024, 1, 1, 11, 0, tzinfo=timezone.utc),
+            granularity=TemporalGranularity.PRECISE,
+            source_snippet="End at 11:00",
+        )
+
+        mock_ext.extract_events.return_value = [evt_start, evt_end]
+
+        # 2. Run Extraction
+        events = agent.extract_from_text("Start at 10:00. End at 11:00.", datetime(2024, 1, 1, tzinfo=timezone.utc))
+        assert len(events) == 2
+
+        # 3. Check Causality (Is Start plausible cause of End?)
+        mock_causal.is_plausible_cause.return_value = True
+        is_cause = agent.analyze_causality(events[0], events[1])
+        assert is_cause is True
+        mock_causal.is_plausible_cause.assert_called_with(evt_start, evt_end)
+
+        # 4. Check Compliance (End should be within 2 hours of Start)
+        mock_rule = MagicMock(spec=MaxDelayRule)
+        # Mocking the result of validate
+        mock_rule.validate.return_value = ComplianceResult(is_compliant=True, drift=datetime.now() - datetime.now())
+
+        res = agent.check_compliance(events[1], events[0], mock_rule)
+        assert res.is_compliant is True
+        mock_rule.validate.assert_called_with(evt_end.timestamp, evt_start.timestamp)
+
+    def test_component_error_propagation(self, mock_components: tuple[MagicMock, MagicMock, MagicMock]) -> None:
+        """Test that exceptions from sub-components are propagated correctly."""
+        mock_ext, _, _ = mock_components
+        agent = ChronosTimekeeper()
+
+        # Simulate Extraction Failure
+        mock_ext.extract_events.side_effect = ValueError("Extraction Failed")
+
+        with pytest.raises(ValueError, match="Extraction Failed"):
+            agent.extract_from_text("bad text", datetime.now(timezone.utc))
+
+    def test_empty_text_extraction(self, mock_components: tuple[MagicMock, MagicMock, MagicMock]) -> None:
+        """Test behavior with empty input."""
+        mock_ext, _, _ = mock_components
+        agent = ChronosTimekeeper()
+
+        # Mock extracting nothing
+        mock_ext.extract_events.return_value = []
+
+        result = agent.extract_from_text("", datetime.now(timezone.utc))
+        assert result == []
