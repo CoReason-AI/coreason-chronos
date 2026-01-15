@@ -102,7 +102,7 @@ class TestCausalityEngine:
             timestamp=start,
             ends_at=end,
             granularity=TemporalGranularity.PRECISE,
-            source_snippet="test"
+            source_snippet="test",
         )
 
         # Self-relation should be EQUALS
