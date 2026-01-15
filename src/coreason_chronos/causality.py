@@ -1,5 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
+
+from coreason_chronos.schemas import TemporalEvent
+from coreason_chronos.utils.logger import logger
 
 
 class AllenRelation(str, Enum):
@@ -98,18 +101,87 @@ def get_interval_relation(start_a: datetime, end_a: datetime, start_b: datetime,
         return AllenRelation.CONTAINS
 
     # 13. EQUALS (A = B): A and B start and end together
-    if start_a == start_b and end_a == end_b:
-        return AllenRelation.EQUALS
+    return AllenRelation.EQUALS
 
-    # Should be unreachable if logic is complete, but let's see.
-    # Are there any other cases?
-    # Logic covers:
-    # Disjoint: Before, After
-    # Touching: Meets, Met By
-    # Overlapping boundaries: Overlaps, Overlapped By
-    # Matching Start: Starts, Started By, Equals
-    # Matching End: Finishes, Finished By, Equals
-    # Nested: During, Contains
 
-    # It seems complete.
-    raise ValueError("Unable to determine relation. This code path should be unreachable.")  # pragma: no cover
+class CausalityEngine:
+    """
+    High-level engine for determining causal relationships between events.
+    """
+
+    def _resolve_interval(self, event: TemporalEvent) -> tuple[datetime, datetime]:
+        """
+        Resolves a TemporalEvent into a strict [start, end) interval.
+        Point events are converted to [timestamp, timestamp + 1 microsecond].
+        """
+        start = event.timestamp
+        end = None
+
+        if event.ends_at:
+            end = event.ends_at
+        elif event.duration_minutes is not None:
+            end = start + timedelta(minutes=event.duration_minutes)
+
+        # Handle point events (or if calculated end <= start due to 0 duration)
+        if end is None or end <= start:
+            # Promote to epsilon interval for Algebra compliance
+            end = start + timedelta(microseconds=1)
+
+        return start, end
+
+    def get_relation(self, event_a: TemporalEvent, event_b: TemporalEvent) -> AllenRelation:
+        """
+        Determines the Allen Relation between two TemporalEvents.
+        """
+        start_a, end_a = self._resolve_interval(event_a)
+        start_b, end_b = self._resolve_interval(event_b)
+
+        return get_interval_relation(start_a, end_a, start_b, end_b)
+
+    def is_plausible_cause(self, cause: TemporalEvent, effect: TemporalEvent) -> bool:
+        """
+        Determines if 'cause' is temporally plausible as a cause for 'effect'.
+
+        Plausibility Rule: Cause must start BEFORE or SIMULTANEOUSLY with the Effect's start.
+        (Cause Start <= Effect Start)
+
+        This maps to the following Allen Relations:
+        - BEFORE (Cause < Effect)
+        - MEETS (Cause touches Effect start)
+        - OVERLAPS (Cause starts before, overlaps Effect)
+        - FINISHED_BY (Cause ends with Effect, starts before)
+        - CONTAINS (Cause contains Effect)
+        - STARTS (Cause starts with Effect)
+        - STARTED_BY (Cause starts with Effect)
+        - EQUALS (Same interval)
+
+        Implausible:
+        - AFTER
+        - MET_BY
+        - OVERLAPPED_BY
+        - FINISHES
+        - DURING (Cause starts AFTER Effect starts)
+        """
+        try:
+            relation = self.get_relation(cause, effect)
+        except ValueError as e:
+            logger.error(f"Failed to calculate interval relation: {e}")
+            return False
+
+        plausible_relations = {
+            AllenRelation.BEFORE,
+            AllenRelation.MEETS,
+            AllenRelation.OVERLAPS,
+            AllenRelation.FINISHED_BY,
+            AllenRelation.CONTAINS,
+            AllenRelation.STARTS,
+            AllenRelation.STARTED_BY,
+            AllenRelation.EQUALS,
+        }
+
+        is_plausible = relation in plausible_relations
+        logger.debug(
+            f"Checking causality: '{cause.description}' vs '{effect.description}' -> {relation}"
+            f" -> Plausible: {is_plausible}"
+        )
+        return is_plausible
