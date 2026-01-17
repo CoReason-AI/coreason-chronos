@@ -44,9 +44,40 @@ class TestChronosTimekeeper:
             patch("coreason_chronos.agent.TimelineExtractor"),
             patch("coreason_chronos.agent.CausalityEngine"),
         ):
+            # Update verification to include quantization=None default
             ChronosTimekeeper(model_name="custom-model", device="cuda")
+            mock_fc_cls.assert_called_with(model_name="custom-model", device="cuda", quantization=None)
 
-            mock_fc_cls.assert_called_with(model_name="custom-model", device="cuda")
+            # Update verification for explicit quantization
+            ChronosTimekeeper(model_name="custom-model", device="cuda", quantization="int8")
+            mock_fc_cls.assert_called_with(model_name="custom-model", device="cuda", quantization="int8")
+
+    def test_agent_lifecycle_with_quantization(self) -> None:
+        """
+        Test that initialization with quantization yields a working agent
+        that uses the quantized forecaster (mocked).
+        """
+        with (
+            patch("coreason_chronos.agent.ChronosForecaster") as mock_fc_cls,
+            patch("coreason_chronos.agent.TimelineExtractor"),
+            patch("coreason_chronos.agent.CausalityEngine"),
+        ):
+            # 1. Initialize
+            agent = ChronosTimekeeper(model_name="q-model", device="cuda", quantization="int8")
+
+            # Verify initialization
+            mock_fc_cls.assert_called_with(model_name="q-model", device="cuda", quantization="int8")
+
+            # 2. Mock behavior for forecast
+            mock_forecaster_instance = mock_fc_cls.return_value
+            expected_result = MagicMock(spec=ForecastResult)
+            mock_forecaster_instance.forecast.return_value = expected_result
+
+            # 3. Use the agent
+            result = agent.forecast_series(history=[1.0, 2.0], prediction_length=3)
+
+            assert result == expected_result
+            mock_forecaster_instance.forecast.assert_called_once()
 
     def test_extract_from_text(self, mock_components: tuple[MagicMock, MagicMock, MagicMock]) -> None:
         mock_ext, _, _ = mock_components
