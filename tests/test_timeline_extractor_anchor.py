@@ -5,12 +5,12 @@ import pytest
 from coreason_chronos.timeline_extractor import TimelineExtractor
 
 
-@pytest.fixture  # type: ignore
+@pytest.fixture
 def extractor() -> TimelineExtractor:
     return TimelineExtractor()
 
 
-@pytest.fixture  # type: ignore
+@pytest.fixture
 def ref_date() -> datetime:
     return datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
 
