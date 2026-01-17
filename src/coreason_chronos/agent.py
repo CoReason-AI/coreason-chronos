@@ -1,6 +1,6 @@
 # Prosperity Public License 3.0
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from coreason_chronos.causality import CausalityEngine
 from coreason_chronos.forecaster import ChronosForecaster
@@ -16,17 +16,25 @@ class ChronosTimekeeper:
     Acts as a facade over the specialized components.
     """
 
-    def __init__(self, model_name: str = "amazon/chronos-t5-tiny", device: str = "cpu") -> None:
+    def __init__(
+        self,
+        model_name: str = "amazon/chronos-t5-tiny",
+        device: str = "cpu",
+        quantization: Optional[str] = None,
+    ) -> None:
         """
         Initialize the Timekeeper with its sub-components.
 
         Args:
             model_name: Name of the Chronos model to load.
             device: Device for the model ('cpu' or 'cuda').
+            quantization: Quantization mode (e.g. 'int8') passed to Forecaster.
         """
-        logger.info(f"Initializing ChronosTimekeeper (Model: {model_name}, Device: {device})")
+        logger.info(
+            f"Initializing ChronosTimekeeper (Model: {model_name}, Device: {device}, Quantization: {quantization})"
+        )
         self.extractor = TimelineExtractor()
-        self.forecaster = ChronosForecaster(model_name=model_name, device=device)
+        self.forecaster = ChronosForecaster(model_name=model_name, device=device, quantization=quantization)
         self.causality = CausalityEngine()
 
     def extract_from_text(self, text: str, reference_date: datetime) -> List[TemporalEvent]:
