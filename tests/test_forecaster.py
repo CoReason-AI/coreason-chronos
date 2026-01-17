@@ -3,12 +3,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
-
 from coreason_chronos.forecaster import ChronosForecaster
 from coreason_chronos.schemas import ForecastRequest, ForecastResult
 
 
-@pytest.fixture  # type: ignore
+@pytest.fixture
 def mock_pipeline_class() -> Generator[MagicMock, None, None]:
     with patch("coreason_chronos.forecaster.ChronosPipeline") as mock_class:
         pipeline_instance = MagicMock()
@@ -172,7 +171,7 @@ def test_forecast_no_warning_when_covariates_none_or_empty(
         mock_logger.warning.assert_not_called()
 
 
-@pytest.mark.live  # type: ignore
+@pytest.mark.live
 def test_forecast_integration_real_model() -> None:
     """
     Integration test using the real model.

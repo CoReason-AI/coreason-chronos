@@ -4,14 +4,13 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
-
 from coreason_chronos.agent import ChronosTimekeeper
 from coreason_chronos.schemas import ComplianceResult, ForecastResult, TemporalEvent, TemporalGranularity
 from coreason_chronos.validator import MaxDelayRule
 
 
 class TestChronosTimekeeper:
-    @pytest.fixture  # type: ignore
+    @pytest.fixture
     def mock_components(self) -> Generator[tuple[MagicMock, MagicMock, MagicMock], None, None]:
         with (
             patch("coreason_chronos.agent.TimelineExtractor") as mock_ext_cls,

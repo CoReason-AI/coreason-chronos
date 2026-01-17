@@ -3,17 +3,16 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
-
 from coreason_chronos.schemas import TemporalEvent, TemporalGranularity
 from coreason_chronos.timeline_extractor import TimelineExtractor
 
 
 class TestTimelineExtractor:
-    @pytest.fixture  # type: ignore
+    @pytest.fixture
     def extractor(self) -> TimelineExtractor:
         return TimelineExtractor()
 
-    @pytest.fixture  # type: ignore
+    @pytest.fixture
     def ref_date(self) -> datetime:
         return datetime(2024, 1, 10, 12, 0, 0, tzinfo=timezone.utc)
 
