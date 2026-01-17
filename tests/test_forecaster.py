@@ -26,6 +26,17 @@ def test_initialization(mock_pipeline_class: MagicMock) -> None:
     mock_pipeline_class.from_pretrained.assert_called_with("test-model", device_map="cpu", torch_dtype=torch.float32)
 
 
+def test_initialization_with_quantization(mock_pipeline_class: MagicMock) -> None:
+    # Test INT8 quantization initialization
+    _ = ChronosForecaster(model_name="test-model", device="cpu", quantization="int8")
+
+    # Assert load_in_8bit=True is passed
+    mock_pipeline_class.from_pretrained.assert_called_with("test-model", device_map="cpu", load_in_8bit=True)
+    # torch_dtype should NOT be passed when load_in_8bit is True (or handled by accelerate)
+    # Our implementation logic excludes torch_dtype if quantization="int8"
+    assert "torch_dtype" not in mock_pipeline_class.from_pretrained.call_args.kwargs
+
+
 def test_forecast_happy_path(mock_pipeline_class: MagicMock) -> None:
     # Setup mock instance
     mock_instance = mock_pipeline_class.from_pretrained.return_value

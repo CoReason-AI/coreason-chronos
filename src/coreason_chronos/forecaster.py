@@ -1,3 +1,5 @@
+from typing import Any, Dict, Optional
+
 import numpy as np
 import torch
 from chronos import ChronosPipeline
@@ -11,20 +13,44 @@ class ChronosForecaster:
     Forecasting engine using Amazon Chronos T5 model.
     """
 
-    def __init__(self, model_name: str = "amazon/chronos-t5-tiny", device: str = "cpu") -> None:
+    def __init__(
+        self,
+        model_name: str = "amazon/chronos-t5-tiny",
+        device: str = "cpu",
+        quantization: Optional[str] = None,
+    ) -> None:
         """
         Initialize the Chronos pipeline.
 
         Args:
             model_name: The HuggingFace model identifier.
             device: Device to run the model on ('cpu' or 'cuda').
+            quantization: Quantization mode (e.g., 'int8', 'float16').
+                          If 'int8', uses `load_in_8bit=True` (requires bitsandbytes).
         """
-        logger.info(f"Initializing ChronosForecaster with model '{model_name}' on {device}")
-        self.pipeline = ChronosPipeline.from_pretrained(
-            model_name,
-            device_map=device,
-            torch_dtype=torch.float32 if device == "cpu" else torch.bfloat16,
+        logger.info(
+            f"Initializing ChronosForecaster with model '{model_name}' on {device} (Quantization: {quantization})"
         )
+
+        kwargs: Dict[str, Any] = {
+            "device_map": device,
+        }
+
+        # Handle torch_dtype and quantization logic
+        if quantization == "int8":
+            # 8-bit quantization typically requires bitsandbytes and CUDA,
+            # but usually 'load_in_8bit=True' handles the config.
+            kwargs["load_in_8bit"] = True
+            # When using load_in_8bit, torch_dtype is often inferred or set to float16 automatically
+            # by accelerate/bitsandbytes
+        else:
+            # Default behavior
+            if device == "cpu":
+                kwargs["torch_dtype"] = torch.float32
+            else:
+                kwargs["torch_dtype"] = torch.bfloat16  # pragma: no cover
+
+        self.pipeline = ChronosPipeline.from_pretrained(model_name, **kwargs)
 
     def forecast(self, request: ForecastRequest) -> ForecastResult:
         """

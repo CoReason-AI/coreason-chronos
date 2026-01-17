@@ -44,9 +44,13 @@ class TestChronosTimekeeper:
             patch("coreason_chronos.agent.TimelineExtractor"),
             patch("coreason_chronos.agent.CausalityEngine"),
         ):
+            # Update verification to include quantization=None default
             ChronosTimekeeper(model_name="custom-model", device="cuda")
+            mock_fc_cls.assert_called_with(model_name="custom-model", device="cuda", quantization=None)
 
-            mock_fc_cls.assert_called_with(model_name="custom-model", device="cuda")
+            # Update verification for explicit quantization
+            ChronosTimekeeper(model_name="custom-model", device="cuda", quantization="int8")
+            mock_fc_cls.assert_called_with(model_name="custom-model", device="cuda", quantization="int8")
 
     def test_extract_from_text(self, mock_components: tuple[MagicMock, MagicMock, MagicMock]) -> None:
         mock_ext, _, _ = mock_components
