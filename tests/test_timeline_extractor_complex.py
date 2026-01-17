@@ -8,11 +8,11 @@ from coreason_chronos.timeline_extractor import TimelineExtractor
 
 
 class TestTimelineExtractorComplex:
-    @pytest.fixture  # type: ignore
+    @pytest.fixture
     def extractor(self) -> TimelineExtractor:
         return TimelineExtractor()
 
-    @pytest.fixture  # type: ignore
+    @pytest.fixture
     def ref_date(self) -> datetime:
         return datetime(2024, 1, 10, 12, 0, 0, tzinfo=timezone.utc)
 

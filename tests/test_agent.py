@@ -11,7 +11,7 @@ from coreason_chronos.validator import MaxDelayRule
 
 
 class TestChronosTimekeeper:
-    @pytest.fixture  # type: ignore
+    @pytest.fixture
     def mock_components(self) -> Generator[tuple[MagicMock, MagicMock, MagicMock], None, None]:
         with (
             patch("coreason_chronos.agent.TimelineExtractor") as mock_ext_cls,
