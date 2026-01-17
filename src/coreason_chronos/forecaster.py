@@ -25,8 +25,11 @@ class ChronosForecaster:
         Args:
             model_name: The HuggingFace model identifier.
             device: Device to run the model on ('cpu' or 'cuda').
-            quantization: Quantization mode (e.g., 'int8', 'float16').
+            quantization: Quantization mode (e.g., 'int8').
                           If 'int8', uses `load_in_8bit=True` (requires bitsandbytes).
+
+        Raises:
+            ValueError: If an unsupported quantization mode is provided.
         """
         logger.info(
             f"Initializing ChronosForecaster with model '{model_name}' on {device} (Quantization: {quantization})"
@@ -43,6 +46,8 @@ class ChronosForecaster:
             kwargs["load_in_8bit"] = True
             # When using load_in_8bit, torch_dtype is often inferred or set to float16 automatically
             # by accelerate/bitsandbytes
+        elif quantization is not None:
+            raise ValueError(f"Unsupported quantization mode: {quantization}")
         else:
             # Default behavior
             if device == "cpu":
