@@ -259,7 +259,9 @@ class TimelineExtractor:
                     # Valid occurrence. Find closest event.
                     match_meta = self._find_closest_event(occ_start, occ_end, resolved_events_meta)
                     if match_meta:
-                        dist = self._calculate_interval_distance(occ_start, occ_end, match_meta["start"], match_meta["end"])
+                        dist = self._calculate_interval_distance(
+                            occ_start, occ_end, match_meta["start"], match_meta["end"]
+                        )
 
                         if dist < min_dist_global:
                             min_dist_global = dist
