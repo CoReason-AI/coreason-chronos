@@ -1,7 +1,7 @@
 # Prosperity Public License 3.0
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from uuid import uuid4
 
 from dateparser.search import search_dates
@@ -50,18 +50,6 @@ class TimelineExtractor:
         snippet = text[ctx_start:ctx_end].strip()
         return snippet.replace("\n", " ")
 
-    def _calculate_interval_distance(self, start1: int, end1: int, start2: int, end2: int) -> int:
-        """
-        Calculates the distance between two intervals [start1, end1) and [start2, end2).
-        Returns 0 if they overlap. Otherwise, returns the gap size.
-        """
-        if max(start1, start2) < min(end1, end2):
-            return 0
-        elif end2 <= start1:
-            return start1 - end2
-        else:
-            return start2 - end1
-
     def _parse_duration(self, value: float, unit: str) -> relativedelta:
         """
         Converts a value and unit string into a relativedelta.
@@ -97,24 +85,6 @@ class TimelineExtractor:
                 }
             )
         return candidates
-
-    def _find_closest_event(
-        self, target_start: int, target_end: int, events_meta: List[Dict[str, Any]]
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Finds the event in events_meta that is closest to the target interval [target_start, target_end].
-        """
-        best_event = None
-        min_dist = float("inf")
-
-        for meta in events_meta:
-            dist = self._calculate_interval_distance(target_start, target_end, meta["start"], meta["end"])
-
-            if dist < min_dist:
-                min_dist = dist
-                best_event = meta
-
-        return best_event
 
     def _calculate_semantic_score(self, anchor: str, target_text: str) -> float:
         """
@@ -242,7 +212,6 @@ class TimelineExtractor:
                 cand_end = cand["end"]
 
                 best_match_event = None
-                # min_dist_global was removed as unused
 
                 # Strategy B: Semantic/Fuzzy Match against resolved events
                 # We prioritize semantic match over raw proximity now with RapidFuzz
@@ -294,7 +263,6 @@ class TimelineExtractor:
                     fuzzy_candidates.sort(key=lambda x: (-x["score"], x["dist"]))
                     best_candidate = fuzzy_candidates[0]
                     best_match_event = best_candidate["event"]
-                    # min_dist_global = best_candidate["dist"] # Removed unused variable assignment
 
                 # If we found a match, resolve
                 if best_match_event:
