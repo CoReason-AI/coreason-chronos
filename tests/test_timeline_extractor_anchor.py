@@ -5,12 +5,12 @@ import pytest
 from coreason_chronos.timeline_extractor import TimelineExtractor
 
 
-@pytest.fixture  # type: ignore
+@pytest.fixture
 def extractor() -> TimelineExtractor:
     return TimelineExtractor()
 
 
-@pytest.fixture  # type: ignore
+@pytest.fixture
 def ref_date() -> datetime:
     return datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
 
@@ -42,7 +42,7 @@ def test_anchor_resolution_before(extractor: TimelineExtractor, ref_date: dateti
     events = extractor.extract_events(text, ref_date)
 
     # Check absolute date
-    surgery = next(e for e in events if "Jan 10" in e.description or "Jan 10" in e.source_snippet)
+    surgery = next(e for e in events if "Jan 10" in e.source_snippet)
     # dateparser resolves Jan 10th relative to ref_date (Jan 1 2024) -> Jan 10 2024
     assert surgery.timestamp.day == 10
     assert surgery.timestamp.month == 1

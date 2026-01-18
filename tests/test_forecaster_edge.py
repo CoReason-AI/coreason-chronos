@@ -9,7 +9,7 @@ from coreason_chronos.forecaster import ChronosForecaster
 from coreason_chronos.schemas import ForecastRequest
 
 
-@pytest.fixture  # type: ignore
+@pytest.fixture
 def mock_pipeline_class() -> Generator[MagicMock, None, None]:
     with patch("coreason_chronos.forecaster.ChronosPipeline") as mock_class:
         pipeline_instance = MagicMock()
@@ -67,7 +67,7 @@ def test_constant_history(mock_pipeline_class: MagicMock) -> None:
     assert result.upper_bound == [10.0] * 5
 
 
-@pytest.mark.live  # type: ignore
+@pytest.mark.live
 def test_real_model_complex_cases() -> None:
     """
     Test real model with edge cases.
