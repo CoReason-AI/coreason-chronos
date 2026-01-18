@@ -72,6 +72,9 @@ plugins = ["pydantic.mypy"]
 [tool.pytest.ini_options]
 addopts = "--cov=src --cov-report=term-missing --cov-fail-under=100"
 testpaths = ["tests"]
+markers = [
+    "live: marks tests as live (deselect with '-m \"not live\"')",
+]
 
 [tool.coverage.run]
 omit = ["tests/*"]

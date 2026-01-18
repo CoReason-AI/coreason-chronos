@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from coreason_chronos.schemas import ComplianceResult
@@ -42,8 +42,6 @@ class MaxDelayRule(ValidationRule):
             raise ValueError("Both target_time and reference_time must be timezone-aware")
 
         # Normalize to UTC for absolute time arithmetic (avoids DST wall-clock issues)
-        from datetime import timezone
-
         ref_utc = reference_time.astimezone(timezone.utc)
         target_utc = target_time.astimezone(timezone.utc)
 
