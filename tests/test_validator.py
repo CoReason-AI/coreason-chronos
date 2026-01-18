@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
+
 from coreason_chronos.validator import MaxDelayRule
 
 

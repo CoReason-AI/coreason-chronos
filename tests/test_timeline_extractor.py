@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
+
 from coreason_chronos.schemas import TemporalEvent, TemporalGranularity
 from coreason_chronos.timeline_extractor import TimelineExtractor
 

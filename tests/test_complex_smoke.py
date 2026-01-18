@@ -4,10 +4,11 @@ from typing import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
+from matplotlib.figure import Figure
+
 from coreason_chronos.agent import ChronosTimekeeper
 from coreason_chronos.schemas import ComplianceResult
 from coreason_chronos.validator import MaxDelayRule
-from matplotlib.figure import Figure
 
 
 class TestComplexSmoke:

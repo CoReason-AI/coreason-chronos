@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
+
 from coreason_chronos.agent import ChronosTimekeeper
 from coreason_chronos.schemas import ComplianceResult, ForecastResult, TemporalEvent, TemporalGranularity
 from coreason_chronos.validator import MaxDelayRule
