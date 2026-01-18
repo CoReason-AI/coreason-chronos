@@ -1,11 +1,12 @@
 # Prosperity Public License 3.0
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from uuid import uuid4
 
 from dateparser.search import search_dates
 from dateutil.relativedelta import relativedelta
+from rapidfuzz import fuzz
 
 from coreason_chronos.schemas import TemporalEvent, TemporalGranularity
 from coreason_chronos.utils.logger import logger
@@ -49,18 +50,6 @@ class TimelineExtractor:
         snippet = text[ctx_start:ctx_end].strip()
         return snippet.replace("\n", " ")
 
-    def _calculate_interval_distance(self, start1: int, end1: int, start2: int, end2: int) -> int:
-        """
-        Calculates the distance between two intervals [start1, end1) and [start2, end2).
-        Returns 0 if they overlap. Otherwise, returns the gap size.
-        """
-        if max(start1, start2) < min(end1, end2):
-            return 0
-        elif end2 <= start1:
-            return start1 - end2
-        else:
-            return start2 - end1
-
     def _parse_duration(self, value: float, unit: str) -> relativedelta:
         """
         Converts a value and unit string into a relativedelta.
@@ -97,51 +86,30 @@ class TimelineExtractor:
             )
         return candidates
 
-    def _find_closest_event(
-        self, target_start: int, target_end: int, events_meta: List[Dict[str, Any]]
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Finds the event in events_meta that is closest to the target interval [target_start, target_end].
-        """
-        best_event = None
-        min_dist = float("inf")
-
-        for meta in events_meta:
-            dist = self._calculate_interval_distance(target_start, target_end, meta["start"], meta["end"])
-
-            if dist < min_dist:
-                min_dist = dist
-                best_event = meta
-
-        return best_event
-
     def _calculate_semantic_score(self, anchor: str, target_text: str) -> float:
         """
         Calculates a semantic match score between the anchor phrase and the target text.
-        Returns a float between 0.0 and 1.0.
+        Uses RapidFuzz for standard, efficient matching.
         """
-
-        def normalize(s: str) -> set[str]:
-            # Simple tokenization: lower case, remove punctuation, split by space
-            clean = re.sub(r"[^\w\s]", "", s.lower())
-            return set(clean.split())
-
-        anchor_tokens = normalize(anchor)
-        target_tokens = normalize(target_text)
-
-        # Remove common stop words (very basic)
+        # Pre-process to remove stop words to help token set ratio
         stop_words = {"the", "a", "an", "of", "to", "in", "on", "at", "for", "with", "by"}
-        anchor_tokens -= stop_words
-        target_tokens -= stop_words
 
-        if not anchor_tokens:
+        def clean(s: str) -> str:
+            # lower, remove non-word chars except spaces
+            s = re.sub(r"[^\w\s]", "", s.lower())
+            tokens = s.split()
+            tokens = [t for t in tokens if t not in stop_words]
+            return " ".join(tokens)
+
+        anchor_clean = clean(anchor)
+        target_clean = clean(target_text)
+
+        if not anchor_clean:
             return 0.0
 
-        # Check intersection
-        intersection = anchor_tokens.intersection(target_tokens)
-
-        ratio = len(intersection) / len(anchor_tokens)
-        return ratio
+        score = fuzz.token_set_ratio(anchor_clean, target_clean)
+        logger.debug(f"Fuzzy Match: '{anchor_clean}' vs '{target_clean}' -> {score}")
+        return float(score) / 100.0
 
     def extract_events(self, text: str, reference_date: datetime) -> List[TemporalEvent]:
         """
@@ -244,30 +212,9 @@ class TimelineExtractor:
                 cand_end = cand["end"]
 
                 best_match_event = None
-                min_dist_global = float("inf")
-
-                # Find occurrences
-                pattern = re.escape(anchor_phrase)
-                for m in re.finditer(pattern, text, re.IGNORECASE):
-                    occ_start = m.start()
-                    occ_end = m.end()
-
-                    # Check if this occurrence overlaps with the candidate's own span
-                    if max(cand_start, occ_start) < min(cand_end, occ_end):
-                        continue
-
-                    # Valid occurrence. Find closest event.
-                    match_meta = self._find_closest_event(occ_start, occ_end, resolved_events_meta)
-                    if match_meta:
-                        dist = self._calculate_interval_distance(
-                            occ_start, occ_end, match_meta["start"], match_meta["end"]
-                        )
-
-                        if dist < min_dist_global:
-                            min_dist_global = dist
-                            best_match_event = match_meta["event"]
 
                 # Strategy B: Semantic/Fuzzy Match against resolved events
+                # We prioritize semantic match over raw proximity now with RapidFuzz
                 fuzzy_candidates = []
 
                 for meta in resolved_events_meta:
@@ -299,6 +246,8 @@ class TimelineExtractor:
                     score_snip = self._calculate_semantic_score(anchor_phrase, evt.source_snippet)
                     score = max(score_desc, score_snip)
 
+                    # Threshold for fuzzy match
+                    # Adjusted threshold after adding stopword removal
                     if score >= 0.5:
                         # Calculate distance
                         if cand_start > meta["start"]:
@@ -312,17 +261,8 @@ class TimelineExtractor:
                 if fuzzy_candidates:
                     # Sort by Score DESC, then Distance ASC
                     fuzzy_candidates.sort(key=lambda x: (-x["score"], x["dist"]))
-
                     best_candidate = fuzzy_candidates[0]
-
-                    if best_match_event:
-                        if best_candidate["score"] >= 1.0:
-                            if best_candidate["dist"] < min_dist_global:
-                                best_match_event = best_candidate["event"]
-                                min_dist_global = best_candidate["dist"]
-                    else:
-                        best_match_event = best_candidate["event"]
-                        min_dist_global = best_candidate["dist"]
+                    best_match_event = best_candidate["event"]
 
                 # If we found a match, resolve
                 if best_match_event:
