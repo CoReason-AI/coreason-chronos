@@ -3,10 +3,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
-from pydantic import ValidationError
-
 from coreason_chronos.forecaster import ChronosForecaster
 from coreason_chronos.schemas import ForecastRequest
+from pydantic import ValidationError
 
 
 @pytest.fixture

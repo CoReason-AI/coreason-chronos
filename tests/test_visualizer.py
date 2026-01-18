@@ -4,10 +4,9 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
-from matplotlib.figure import Figure
-
 from coreason_chronos.schemas import ForecastRequest, ForecastResult
 from coreason_chronos.visualizer import plot_forecast
+from matplotlib.figure import Figure
 
 # Force non-interactive backend for tests
 matplotlib.use("Agg")

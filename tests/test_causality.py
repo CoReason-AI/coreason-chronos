@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
-
 from coreason_chronos.causality import AllenRelation, get_interval_relation
 
 
