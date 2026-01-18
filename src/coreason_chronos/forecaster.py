@@ -7,6 +7,8 @@ from chronos import ChronosPipeline
 from coreason_chronos.schemas import ForecastRequest, ForecastResult
 from coreason_chronos.utils.logger import logger
 
+DEFAULT_CHRONOS_MODEL = "amazon/chronos-t5-tiny"
+
 
 class ChronosForecaster:
     """
@@ -15,7 +17,7 @@ class ChronosForecaster:
 
     def __init__(
         self,
-        model_name: str = "amazon/chronos-t5-tiny",
+        model_name: str = DEFAULT_CHRONOS_MODEL,
         device: str = "cpu",
         quantization: Optional[str] = None,
     ) -> None:

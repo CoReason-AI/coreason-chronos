@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from coreason_chronos.causality import CausalityEngine
-from coreason_chronos.forecaster import ChronosForecaster
+from coreason_chronos.forecaster import DEFAULT_CHRONOS_MODEL, ChronosForecaster
 from coreason_chronos.schemas import ComplianceResult, ForecastRequest, ForecastResult, TemporalEvent
 from coreason_chronos.timeline_extractor import TimelineExtractor
 from coreason_chronos.utils.logger import logger
@@ -18,7 +18,7 @@ class ChronosTimekeeper:
 
     def __init__(
         self,
-        model_name: str = "amazon/chronos-t5-tiny",
+        model_name: str = DEFAULT_CHRONOS_MODEL,
         device: str = "cpu",
         quantization: Optional[str] = None,
     ) -> None:
