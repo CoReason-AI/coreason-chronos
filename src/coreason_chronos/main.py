@@ -68,7 +68,16 @@ def extract(input_text: Optional[str], file: Optional[str], ref_date: str) -> No
 @click.option("--steps", "-s", default=12, help="Number of steps to forecast.")
 @click.option("--confidence", "-c", default=0.9, help="Confidence level (0.0 - 1.0).")
 @click.option("--model", "-m", default="amazon/chronos-t5-tiny", help="HuggingFace model ID.")
-def forecast(history_str: str, steps: int, confidence: float, model: str) -> None:
+@click.option("--quantization", "-q", help="Quantization mode (e.g. 'int8').")
+@click.option("--plot-output", "-p", type=click.Path(writable=True), help="Path to save the forecast plot.")
+def forecast(
+    history_str: str,
+    steps: int,
+    confidence: float,
+    model: str,
+    quantization: Optional[str],
+    plot_output: Optional[str],
+) -> None:
     """
     Forecast future values based on history.
     HISTORY should be a comma-separated list of numbers.
@@ -79,10 +88,23 @@ def forecast(history_str: str, steps: int, confidence: float, model: str) -> Non
         click.echo("Error: History must be a comma-separated list of numbers.", err=True)
         sys.exit(1)
 
-    agent = ChronosTimekeeper(model_name=model, device="cpu")
+    agent = ChronosTimekeeper(model_name=model, device="cpu", quantization=quantization)
     result = agent.forecast_series(history, steps, confidence)
 
     click.echo(json.dumps(result.model_dump(mode="json"), indent=2))
+
+    if plot_output:
+        import matplotlib.pyplot as plt
+
+        from coreason_chronos.schemas import ForecastRequest
+        from coreason_chronos.visualizer import plot_forecast
+
+        # Reconstruct request object since Agent consumes it internally
+        req = ForecastRequest(history=history, prediction_length=steps, confidence_level=confidence)
+        fig = plot_forecast(req, result, title="Chronos Forecast")
+        fig.savefig(plot_output)
+        plt.close(fig)
+        logger.info(f"Forecast plot saved to {plot_output}")
 
 
 @cli.command()
