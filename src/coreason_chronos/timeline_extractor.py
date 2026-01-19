@@ -85,10 +85,7 @@ class TimelineExtractor:
         fixed_units = {"days": 24 * 60, "hours": 60, "minutes": 1, "weeks": 7 * 24 * 60, "seconds": 1 / 60}
 
         if unit in fixed_units:
-            minutes = int(value * fixed_units[unit])
-            # Use timedelta for fixed units to allow fractional precision mapping
-            td_kwargs = {unit: value}
-            return minutes, timedelta(**td_kwargs)  # pragma: no cover
+            return int(value * fixed_units[unit]), timedelta(**{unit: value})  # pragma: no cover
 
         # Variable units (months, years) - Fallback to relativedelta (integer based mostly)
         delta = self._parse_duration(value, unit)
