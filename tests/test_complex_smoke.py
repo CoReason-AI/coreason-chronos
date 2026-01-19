@@ -1,6 +1,6 @@
 # Prosperity Public License 3.0
 from datetime import datetime, timedelta, timezone
-from typing import Generator
+from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -131,7 +131,7 @@ class TestComplexSmoke:
 
         # Verify the mock was called
         # agent.forecaster is the mock object passed in __init__
-        agent.forecaster.forecast.assert_called_once()
+        cast(MagicMock, agent.forecaster.forecast).assert_called_once()
 
         # --- 5. Visualization ---
         from coreason_chronos.schemas import ForecastRequest
