@@ -1,7 +1,7 @@
 # Prosperity Public License 3.0
 import re
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from dateparser.search import search_dates
@@ -20,6 +20,13 @@ DURATION_REGEX = re.compile(r"^\d+\s+(year|month|week|day|hour|minute|second)s?$
 ANCHOR_REGEX = re.compile(
     r"(?P<duration>\d+(?:\.\d+)?)\s+(?P<unit>year|month|week|day|hour|minute|second)s?\s+"
     r"(?P<direction>after|before)\s+(?P<anchor>[\w\s]+?)(?:$|[.,;])",
+    re.IGNORECASE,
+)
+
+# Regex to extract duration context associated with an event
+# e.g. "for 3 days", "lasting 2 weeks", "spanning 10 hours"
+DURATION_CONTEXT_REGEX = re.compile(
+    r"(?:for|lasting|spanning)\s+(?P<value>\d+(?:\.\d+)?)\s+(?P<unit>year|month|week|day|hour|minute|second)s?",
     re.IGNORECASE,
 )
 
@@ -65,6 +72,126 @@ class TimelineExtractor:
             kwargs = {unit: int(value)}
 
         return relativedelta(**kwargs)  # type: ignore
+
+    def _calculate_total_minutes_and_delta(self, value: float, unit: str) -> Tuple[int, Any]:
+        """
+        Calculates total minutes and appropriate delta (timedelta or relativedelta).
+        Handles fractional values for fixed units (days, hours, minutes).
+        """
+        unit = unit.lower()
+        if not unit.endswith("s"):
+            unit += "s"
+
+        fixed_units = {"days": 24 * 60, "hours": 60, "minutes": 1, "weeks": 7 * 24 * 60, "seconds": 1 / 60}
+
+        if unit in fixed_units:
+            minutes = int(value * fixed_units[unit])
+            # Use timedelta for fixed units to allow fractional precision mapping
+            td_kwargs = {}
+            if unit == "days":
+                td_kwargs["days"] = value
+            elif unit == "hours":
+                td_kwargs["hours"] = value
+            elif unit == "minutes":
+                td_kwargs["minutes"] = value
+            elif unit == "seconds":
+                td_kwargs["seconds"] = value
+            elif unit == "weeks":
+                td_kwargs["weeks"] = value
+
+            return minutes, timedelta(**td_kwargs)
+
+        # Variable units (months, years) - Fallback to relativedelta (integer based mostly)
+        delta = self._parse_duration(value, unit)
+        # Approx minutes
+        base = datetime(2000, 1, 1)
+        end = base + delta
+        diff = end - base
+        minutes = int(diff.total_seconds() // 60)
+        return minutes, delta
+
+    def _resolve_duration(
+        self, text: str, start_idx: int, end_idx: int, forbidden_ranges: Optional[List[Tuple[int, int]]] = None
+    ) -> Tuple[Optional[int], Optional[Any]]:
+        """
+        Scans the text around the event location (start_idx, end_idx) for duration patterns.
+        Returns (duration_minutes, delta).
+
+        Prioritizes the closest match to the event snippet.
+        Ensures the match does not fall into any forbidden_ranges (e.g., other events or anchors).
+        """
+        # Look in a window around the event
+        window = 50
+        ctx_start = max(0, start_idx - window)
+        ctx_end = min(len(text), end_idx + window)
+        context_text = text[ctx_start:ctx_end]
+
+        matches = list(DURATION_CONTEXT_REGEX.finditer(context_text))
+        if not matches:
+            return None, None
+
+        # Find best match (closest distance to snippet range)
+        # snippet range in context_text coordinates:
+        snip_start_local = start_idx - ctx_start
+        snip_end_local = end_idx - ctx_start
+
+        best_match = None
+        min_dist = float("inf")
+
+        for m in matches:
+            m_start_global = ctx_start + m.start()
+            m_end_global = ctx_start + m.end()
+
+            # Check overlap with forbidden ranges
+            is_forbidden = False
+            if forbidden_ranges:
+                for f_start, f_end in forbidden_ranges:
+                    # Check for intersection
+                    if max(m_start_global, f_start) < min(m_end_global, f_end):
+                        is_forbidden = True
+                        break
+
+            if is_forbidden:
+                continue
+
+            # Check for "intervening" ranges between snippet and match
+            # If the match is separated from the snippet by a forbidden range, it's likely belonging to that range
+            has_intervening = False
+            if forbidden_ranges:
+                for f_start, f_end in forbidden_ranges:
+                    # Case 1: Snippet < Forbidden < Match
+                    if end_idx <= f_start and f_end <= m_start_global:
+                        has_intervening = True
+                        break
+                    # Case 2: Match < Forbidden < Snippet
+                    if m_end_global <= f_start and f_end <= start_idx:
+                        has_intervening = True
+                        break
+
+            if has_intervening:
+                continue
+
+            m_start = m.start()
+            m_end = m.end()
+
+            # Calculate distance
+            if m_start >= snip_end_local:
+                dist = m_start - snip_end_local
+            elif m_end <= snip_start_local:
+                dist = snip_start_local - m_end
+            else:
+                dist = 0
+
+            if dist < min_dist:
+                min_dist = dist
+                best_match = m
+
+        if best_match:
+            val = float(best_match.group("value"))
+            unit = best_match.group("unit")
+            return self._calculate_total_minutes_and_delta(val, unit)
+
+        return None, None
 
     def _extract_anchored_candidates(self, text: str) -> List[Dict[str, Any]]:
         """
@@ -127,15 +254,37 @@ class TimelineExtractor:
             "TO_TIMEZONE": "UTC",
         }
 
-        extracted_dates = search_dates(text, languages=["en"], settings=settings)
+        # Identify Anchored Candidates Early to use as Forbidden Ranges for Standard Durations
+        anchored_candidates = self._extract_anchored_candidates(text)
+
+        # Pre-process dates to find ranges for Forbidden calculation
+        extracted_dates_raw = search_dates(text, languages=["en"], settings=settings) or []
+
+        date_ranges = []
+        search_cursor = 0
+        for source_snippet, _ in extracted_dates_raw:
+            if DURATION_REGEX.match(source_snippet):
+                continue
+
+            idx = self._find_snippet_index(text, source_snippet, search_cursor)
+            if idx == -1:
+                idx = self._find_snippet_index(text, source_snippet, 0)
+
+            if idx != -1:
+                end = idx + len(source_snippet)
+                date_ranges.append((idx, end))
+                search_cursor = idx + 1
+
+        anchor_ranges = [(c["start"], c["end"]) for c in anchored_candidates]
+        all_forbidden_ranges = date_ranges + anchor_ranges
 
         # Storage for all resolved events (Standard + Anchored) with metadata
         # We start with Standard events
         resolved_events_meta: List[Dict[str, Any]] = []
 
-        if extracted_dates:
+        if extracted_dates_raw:
             search_cursor = 0
-            for source_snippet, date_obj in extracted_dates:
+            for source_snippet, date_obj in extracted_dates_raw:
                 if not date_obj:
                     continue
 
@@ -157,6 +306,19 @@ class TimelineExtractor:
 
                     description = self._get_context_description(text, start_idx, end_idx)
 
+                    # Extract Duration
+                    # Don't forbid *this* event snippet (start_idx, end_idx) from being near itself
+                    current_forbidden = [r for r in all_forbidden_ranges if r != (start_idx, end_idx)]
+
+                    duration_minutes, duration_delta = self._resolve_duration(
+                        text, start_idx, end_idx, current_forbidden
+                    )
+                    ends_at = date_obj + duration_delta if duration_delta is not None else None
+
+                    if ends_at and ends_at <= date_obj:
+                        ends_at = None
+                        duration_minutes = None
+
                     granularity = TemporalGranularity.PRECISE
                     if (
                         date_obj.hour == 0
@@ -172,6 +334,8 @@ class TimelineExtractor:
                         timestamp=date_obj,
                         granularity=granularity,
                         source_snippet=source_snippet,
+                        duration_minutes=duration_minutes,
+                        ends_at=ends_at,
                     )
 
                     resolved_events_meta.append(
@@ -185,7 +349,7 @@ class TimelineExtractor:
                     )
 
         # Pass 2: Identify Anchored Candidates
-        anchored_candidates = self._extract_anchored_candidates(text)
+        # (Already calculated anchored_candidates above)
 
         indices_to_remove = set()
         for cand in anchored_candidates:
@@ -272,12 +436,26 @@ class TimelineExtractor:
                     else:
                         new_time = best_match_event.timestamp - delta
 
+                    # Extract Duration for the new event
+                    current_forbidden = [f for f in all_forbidden_ranges if f != (cand_start, cand_end)]
+
+                    duration_minutes, duration_delta = self._resolve_duration(
+                        text, cand_start, cand_end, current_forbidden
+                    )
+                    ends_at = new_time + duration_delta if duration_delta is not None else None
+
+                    if ends_at and ends_at <= new_time:
+                        ends_at = None
+                        duration_minutes = None
+
                     new_event = TemporalEvent(
                         id=uuid4(),
                         description=f"Derived from anchor '{cand['full_match']}' linked to {best_match_event.description[:20]}...",  # noqa: E501
                         timestamp=new_time,
                         granularity=best_match_event.granularity,
                         source_snippet=cand["full_match"],
+                        duration_minutes=duration_minutes,
+                        ends_at=ends_at,
                     )
 
                     resolved_events_meta.append(
