@@ -90,6 +90,55 @@ def test_forecast_command() -> None:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["median"] == [110.0, 112.0]
+        # Verify default quantization
+        MockForecaster.assert_called_with(model_name="amazon/chronos-t5-tiny", device="cpu", quantization=None)
+
+
+def test_forecast_with_quantization() -> None:
+    with patch("coreason_chronos.agent.ChronosForecaster") as MockForecaster:
+        mock_instance = MockForecaster.return_value
+        mock_instance.forecast.return_value = MagicMock(
+            median=[110.0],
+            lower_bound=[100.0],
+            upper_bound=[120.0],
+            confidence_level=0.9,
+            model_dump=lambda **kwargs: {},
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["forecast", "10,20,30", "--quantization", "int8"])
+        assert result.exit_code == 0
+        MockForecaster.assert_called_with(model_name="amazon/chronos-t5-tiny", device="cpu", quantization="int8")
+
+
+def test_forecast_with_plot() -> None:
+    with patch("coreason_chronos.agent.ChronosForecaster") as MockForecaster:
+        mock_instance = MockForecaster.return_value
+        mock_instance.forecast.return_value = MagicMock(
+            median=[110.0, 112.0],
+            lower_bound=[100.0, 102.0],
+            upper_bound=[120.0, 122.0],
+            confidence_level=0.9,
+            model_dump=lambda **kwargs: {},
+        )
+
+        # Also mock plot_forecast and plt to avoid actual IO/Window
+        # plot_forecast is imported inside the function, so we patch where it is defined
+        with (
+            patch("coreason_chronos.visualizer.plot_forecast") as mock_plot,
+            patch("matplotlib.pyplot.close") as mock_close,
+        ):
+            mock_fig = MagicMock()
+            mock_plot.return_value = mock_fig
+
+            runner = CliRunner()
+            with runner.isolated_filesystem():
+                result = runner.invoke(cli, ["forecast", "10,20,30", "--plot-output", "forecast.png"])
+                assert result.exit_code == 0
+
+                mock_plot.assert_called_once()
+                mock_fig.savefig.assert_called_once_with("forecast.png")
+                mock_close.assert_called_once_with(mock_fig)
 
 
 def test_validate_command() -> None:

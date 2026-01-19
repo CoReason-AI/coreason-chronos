@@ -1,7 +1,7 @@
 # Prosperity Public License 3.0
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, cast
 from uuid import uuid4
 
 from dateparser.search import search_dates
@@ -86,23 +86,24 @@ class TimelineExtractor:
             )
         return candidates
 
+    def _clean_text_for_matching(self, s: str) -> str:
+        """
+        Cleans text for semantic matching (lowercase, remove punctuation, remove stop words).
+        """
+        stop_words = {"the", "a", "an", "of", "to", "in", "on", "at", "for", "with", "by"}
+        # lower, remove non-word chars except spaces
+        s = re.sub(r"[^\w\s]", "", s.lower())
+        tokens = s.split()
+        tokens = [t for t in tokens if t not in stop_words]
+        return " ".join(tokens)
+
     def _calculate_semantic_score(self, anchor: str, target_text: str) -> float:
         """
         Calculates a semantic match score between the anchor phrase and the target text.
         Uses RapidFuzz for standard, efficient matching.
         """
-        # Pre-process to remove stop words to help token set ratio
-        stop_words = {"the", "a", "an", "of", "to", "in", "on", "at", "for", "with", "by"}
-
-        def clean(s: str) -> str:
-            # lower, remove non-word chars except spaces
-            s = re.sub(r"[^\w\s]", "", s.lower())
-            tokens = s.split()
-            tokens = [t for t in tokens if t not in stop_words]
-            return " ".join(tokens)
-
-        anchor_clean = clean(anchor)
-        target_clean = clean(target_text)
+        anchor_clean = self._clean_text_for_matching(anchor)
+        target_clean = self._clean_text_for_matching(target_text)
 
         if not anchor_clean:
             return 0.0
@@ -111,14 +112,36 @@ class TimelineExtractor:
         logger.debug(f"Fuzzy Match: '{anchor_clean}' vs '{target_clean}' -> {score}")
         return float(score) / 100.0
 
-    def extract_events(self, text: str, reference_date: datetime) -> List[TemporalEvent]:
+    def _create_temporal_event(
+        self,
+        text: str,
+        start_idx: int,
+        end_idx: int,
+        date_obj: datetime,
+        source_snippet: str,
+    ) -> TemporalEvent:
         """
-        Extracts events from the given text.
+        Helper to instantiate a TemporalEvent with proper context and granularity.
         """
-        if reference_date.tzinfo is None:
-            raise ValueError("reference_date must be timezone-aware")
+        description = self._get_context_description(text, start_idx, end_idx)
 
-        # Pass 1: Standard Extraction (Absolute & Simple Relative)
+        granularity = TemporalGranularity.PRECISE
+        if date_obj.hour == 0 and date_obj.minute == 0 and date_obj.second == 0 and "00:00" not in source_snippet:
+            granularity = TemporalGranularity.DATE_ONLY
+
+        return TemporalEvent(
+            id=uuid4(),
+            description=description,
+            timestamp=date_obj,
+            granularity=granularity,
+            source_snippet=source_snippet,
+        )
+
+    def _extract_standard_events(self, text: str, reference_date: datetime) -> List[Dict[str, Any]]:
+        """
+        Pass 1: Extracts absolute and simple relative dates using dateparser.
+        Returns a list of metadata dictionaries.
+        """
         settings = {
             "RELATIVE_BASE": reference_date.replace(tzinfo=None),
             "RETURN_AS_TIMEZONE_AWARE": True,
@@ -128,77 +151,112 @@ class TimelineExtractor:
         }
 
         extracted_dates = search_dates(text, languages=["en"], settings=settings)
-
-        # Storage for all resolved events (Standard + Anchored) with metadata
-        # We start with Standard events
         resolved_events_meta: List[Dict[str, Any]] = []
 
-        if extracted_dates:
-            search_cursor = 0
-            for source_snippet, date_obj in extracted_dates:
-                if not date_obj:
-                    continue
+        if not extracted_dates:
+            return resolved_events_meta
 
-                if DURATION_REGEX.match(source_snippet):
-                    continue
+        search_cursor = 0
+        for source_snippet, date_obj in extracted_dates:
+            if not date_obj:
+                continue
 
-                if date_obj.tzinfo is None:
-                    date_obj = date_obj.replace(tzinfo=timezone.utc)
+            if DURATION_REGEX.match(source_snippet):
+                continue
+
+            if date_obj.tzinfo is None:
+                date_obj = date_obj.replace(tzinfo=timezone.utc)
+            else:
+                date_obj = date_obj.astimezone(timezone.utc)
+
+            start_idx = self._find_snippet_index(text, source_snippet, search_cursor)
+            if start_idx == -1:
+                start_idx = self._find_snippet_index(text, source_snippet, 0)  # pragma: no cover
+
+            if start_idx != -1:
+                end_idx = start_idx + len(source_snippet)
+                search_cursor = start_idx + 1
+
+                event = self._create_temporal_event(text, start_idx, end_idx, date_obj, source_snippet)
+
+                resolved_events_meta.append(
+                    {
+                        "event": event,
+                        "start": start_idx,
+                        "end": end_idx,
+                        "snippet": source_snippet,
+                        "is_anchored": False,
+                    }
+                )
+
+        return resolved_events_meta
+
+    def _find_best_anchor_match(
+        self,
+        anchor_phrase: str,
+        cand_start: int,
+        cand_end: int,
+        text: str,
+        resolved_events_meta: List[Dict[str, Any]],
+    ) -> Optional[TemporalEvent]:
+        """
+        Finds the best matching event for a given anchor phrase based on semantic score and proximity.
+        """
+        fuzzy_candidates = []
+
+        for meta in resolved_events_meta:
+            evt = meta["event"]
+
+            # Mask anchor text from description to avoid self-matching
+            window = 50
+            d_start = max(0, meta["start"] - window)
+            d_end = min(len(text), meta["end"] + window)
+
+            # If overlap between event context and candidate anchor context
+            if max(d_start, cand_start) < min(d_end, cand_end):
+                p1_end = max(d_start, cand_start)
+                part1 = text[d_start:p1_end]
+
+                p2_start = min(d_end, cand_end)
+                part2 = text[p2_start:d_end]
+
+                masked_desc = (part1 + " " + part2).strip().replace("\n", " ")
+            else:
+                masked_desc = evt.description
+
+            # Calculate max score from description or snippet
+            score_desc = self._calculate_semantic_score(anchor_phrase, masked_desc)
+            score_snip = self._calculate_semantic_score(anchor_phrase, evt.source_snippet)
+            score = max(score_desc, score_snip)
+
+            # Threshold for fuzzy match
+            if score >= 0.5:
+                # Calculate distance
+                if cand_start > meta["start"]:
+                    dist = cand_start - meta["end"]
                 else:
-                    date_obj = date_obj.astimezone(timezone.utc)
+                    dist = meta["start"] - cand_end
+                dist = max(0, dist)
 
-                start_idx = self._find_snippet_index(text, source_snippet, search_cursor)
-                if start_idx == -1:
-                    start_idx = self._find_snippet_index(text, source_snippet, 0)  # pragma: no cover
+                fuzzy_candidates.append({"event": evt, "score": score, "dist": dist})
 
-                if start_idx != -1:
-                    end_idx = start_idx + len(source_snippet)
-                    search_cursor = start_idx + 1
+        if fuzzy_candidates:
+            # Sort by Score DESC, then Distance ASC
+            fuzzy_candidates.sort(key=lambda x: (-x["score"], x["dist"]))
+            return cast(TemporalEvent, fuzzy_candidates[0]["event"])
 
-                    description = self._get_context_description(text, start_idx, end_idx)
+        return None
 
-                    granularity = TemporalGranularity.PRECISE
-                    if (
-                        date_obj.hour == 0
-                        and date_obj.minute == 0
-                        and date_obj.second == 0
-                        and "00:00" not in source_snippet
-                    ):
-                        granularity = TemporalGranularity.DATE_ONLY
-
-                    event = TemporalEvent(
-                        id=uuid4(),
-                        description=description,
-                        timestamp=date_obj,
-                        granularity=granularity,
-                        source_snippet=source_snippet,
-                    )
-
-                    resolved_events_meta.append(
-                        {
-                            "event": event,
-                            "start": start_idx,
-                            "end": end_idx,
-                            "snippet": source_snippet,
-                            "is_anchored": False,
-                        }
-                    )
-
-        # Pass 2: Identify Anchored Candidates
-        anchored_candidates = self._extract_anchored_candidates(text)
-
-        indices_to_remove = set()
-        for cand in anchored_candidates:
-            cand_range = range(cand["start"], cand["end"])
-            for idx, meta in enumerate(resolved_events_meta):
-                meta_range = range(meta["start"], meta["end"])
-                if set(cand_range).intersection(meta_range):
-                    indices_to_remove.add(idx)
-
-        # Rebuild resolved_events_meta without the overlapping standard events
-        resolved_events_meta = [meta for idx, meta in enumerate(resolved_events_meta) if idx not in indices_to_remove]
-
-        # 2b. Iterative Resolution Loop
+    def _resolve_anchored_events(
+        self,
+        text: str,
+        anchored_candidates: List[Dict[str, Any]],
+        resolved_events_meta: List[Dict[str, Any]],
+    ) -> None:
+        """
+        Iteratively resolves anchored candidates against the pool of resolved events.
+        Modifies resolved_events_meta in place.
+        """
         unresolved_candidates = list(anchored_candidates)
         max_iterations = len(anchored_candidates) + 1  # Safe upper bound
 
@@ -207,64 +265,14 @@ class TimelineExtractor:
             still_unresolved = []
 
             for cand in unresolved_candidates:
-                anchor_phrase = cand["anchor_phrase"]
-                cand_start = cand["start"]
-                cand_end = cand["end"]
+                best_match_event = self._find_best_anchor_match(
+                    cand["anchor_phrase"],
+                    cand["start"],
+                    cand["end"],
+                    text,
+                    resolved_events_meta,
+                )
 
-                best_match_event = None
-
-                # Strategy B: Semantic/Fuzzy Match against resolved events
-                # We prioritize semantic match over raw proximity now with RapidFuzz
-                fuzzy_candidates = []
-
-                for meta in resolved_events_meta:
-                    evt = meta["event"]
-
-                    # Mask anchor text from description
-                    window = 50
-                    d_start = max(0, meta["start"] - window)
-                    d_end = min(len(text), meta["end"] + window)
-
-                    # Anchor span
-                    c_start, c_end = cand_start, cand_end
-
-                    # If overlap
-                    if max(d_start, c_start) < min(d_end, c_end):
-                        # Construct a masked text snippet
-                        p1_end = max(d_start, c_start)
-                        part1 = text[d_start:p1_end]
-
-                        p2_start = min(d_end, c_end)
-                        part2 = text[p2_start:d_end]
-
-                        masked_desc = (part1 + " " + part2).strip().replace("\n", " ")
-                    else:
-                        masked_desc = evt.description
-
-                    # Calculate max score from description or snippet
-                    score_desc = self._calculate_semantic_score(anchor_phrase, masked_desc)
-                    score_snip = self._calculate_semantic_score(anchor_phrase, evt.source_snippet)
-                    score = max(score_desc, score_snip)
-
-                    # Threshold for fuzzy match
-                    # Adjusted threshold after adding stopword removal
-                    if score >= 0.5:
-                        # Calculate distance
-                        if cand_start > meta["start"]:
-                            dist = cand_start - meta["end"]
-                        else:
-                            dist = meta["start"] - cand_end
-                        dist = max(0, dist)
-
-                        fuzzy_candidates.append({"event": evt, "score": score, "dist": dist})
-
-                if fuzzy_candidates:
-                    # Sort by Score DESC, then Distance ASC
-                    fuzzy_candidates.sort(key=lambda x: (-x["score"], x["dist"]))
-                    best_candidate = fuzzy_candidates[0]
-                    best_match_event = best_candidate["event"]
-
-                # If we found a match, resolve
                 if best_match_event:
                     delta = self._parse_duration(cand["duration_val"], cand["unit"])
                     if cand["direction"] == "after":
@@ -283,8 +291,8 @@ class TimelineExtractor:
                     resolved_events_meta.append(
                         {
                             "event": new_event,
-                            "start": cand_start,
-                            "end": cand_end,
+                            "start": cand["start"],
+                            "end": cand["end"],
                             "snippet": cand["full_match"],
                             "is_anchored": True,
                         }
@@ -301,6 +309,34 @@ class TimelineExtractor:
         # Log remaining unresolved
         for cand in unresolved_candidates:
             logger.warning(f"Could not resolve anchor '{cand['anchor_phrase']}' for snippet '{cand['full_match']}'")
+
+    def extract_events(self, text: str, reference_date: datetime) -> List[TemporalEvent]:
+        """
+        Extracts events from the given text.
+        """
+        if reference_date.tzinfo is None:
+            raise ValueError("reference_date must be timezone-aware")
+
+        # Pass 1: Standard Extraction
+        resolved_events_meta = self._extract_standard_events(text, reference_date)
+
+        # Pass 2: Identify Anchored Candidates
+        anchored_candidates = self._extract_anchored_candidates(text)
+
+        # Filter out standard events that overlap with anchored candidates
+        # (This handles cases where dateparser might partially pick up an anchor phrase)
+        indices_to_remove = set()
+        for cand in anchored_candidates:
+            cand_range = range(cand["start"], cand["end"])
+            for idx, meta in enumerate(resolved_events_meta):
+                meta_range = range(meta["start"], meta["end"])
+                if set(cand_range).intersection(meta_range):
+                    indices_to_remove.add(idx)
+
+        resolved_events_meta = [meta for idx, meta in enumerate(resolved_events_meta) if idx not in indices_to_remove]
+
+        # Pass 3: Resolve Anchors
+        self._resolve_anchored_events(text, anchored_candidates, resolved_events_meta)
 
         final_events = [meta["event"] for meta in resolved_events_meta]
         final_events.sort(key=lambda x: x.timestamp)
