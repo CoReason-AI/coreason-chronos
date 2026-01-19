@@ -87,18 +87,7 @@ class TimelineExtractor:
         if unit in fixed_units:
             minutes = int(value * fixed_units[unit])
             # Use timedelta for fixed units to allow fractional precision mapping
-            td_kwargs = {}
-            if unit == "days":
-                td_kwargs["days"] = value
-            elif unit == "hours":
-                td_kwargs["hours"] = value
-            elif unit == "minutes":
-                td_kwargs["minutes"] = value
-            elif unit == "seconds":
-                td_kwargs["seconds"] = value
-            elif unit == "weeks":
-                td_kwargs["weeks"] = value
-
+            td_kwargs = {unit: value}
             return minutes, timedelta(**td_kwargs)
 
         # Variable units (months, years) - Fallback to relativedelta (integer based mostly)

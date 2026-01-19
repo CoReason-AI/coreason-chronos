@@ -17,10 +17,6 @@ def ref_date() -> datetime:
 
 
 def test_duration_extraction_basic(extractor: TimelineExtractor, ref_date: datetime) -> None:
-    """
-    Test extraction of a simple duration following an event description.
-    "He had a fever for 3 days starting on Jan 1st."
-    """
     text = "Patient reported fever starting Jan 1st for 3 days."
     events = extractor.extract_events(text, ref_date)
     assert len(events) == 1
@@ -136,6 +132,16 @@ def test_calculate_total_minutes_and_delta_direct(extractor: TimelineExtractor) 
     assert mins == 10080
     assert delta == timedelta(weeks=1)
 
+    # Test days
+    mins, delta = extractor._calculate_total_minutes_and_delta(1, "days")
+    assert mins == 1440
+    assert delta == timedelta(days=1)
+
+    # Test hours
+    mins, delta = extractor._calculate_total_minutes_and_delta(1, "hours")
+    assert mins == 60
+    assert delta == timedelta(hours=1)
+
 
 def test_intervening_case_2(extractor: TimelineExtractor, ref_date: datetime) -> None:
     """
@@ -146,7 +152,6 @@ def test_intervening_case_2(extractor: TimelineExtractor, ref_date: datetime) ->
     events = extractor.extract_events(text, ref_date)
 
     events.sort(key=lambda x: x.timestamp)
-    # Check Admission (Jan 5). It should NOT have 3 days duration.
     admission_events = [e for e in events if e.timestamp.day == 5]
     if admission_events:
         assert admission_events[0].duration_minutes is None
@@ -163,6 +168,31 @@ def test_duration_regex_ignored_mock(
     mock_search_dates.return_value = [("3 months", datetime(2024, 1, 1, tzinfo=timezone.utc))]
 
     events = extractor.extract_events("treated for 3 months", ref_date)
-
-    # It should be filtered by DURATION_REGEX
     assert len(events) == 0
+
+
+def test_duration_overlap_forbidden(extractor: TimelineExtractor, ref_date: datetime) -> None:
+    """
+    Test case where a potential duration string is also a valid Date event, so it should be forbidden.
+    Forces 'is_forbidden' check.
+    We need to find a way to have DURATION_CONTEXT_REGEX match something that is ALSO in forbidden_ranges.
+    """
+    # Pre-calculate forbidden ranges includes Date extraction results.
+    # Text: "Event on Jan 1st. for 3 days."
+    # If "for 3 days" is NOT found as date, no overlap.
+
+    # We can mock extract_anchored_candidates to return a range that overlaps our duration match.
+
+    # Manually call _resolve_duration with a forced forbidden range
+    # "for 3 days" matches 0-10.
+    text = "for 3 days"
+
+    # Make forbidden range cover it (0, 10)
+    forbidden = [(0, 10)]
+
+    # Call private method
+    mins, delta = extractor._resolve_duration(text, 12, 20, forbidden_ranges=forbidden)
+
+    # Should return None because match overlaps forbidden
+    assert mins is None
+    assert delta is None
