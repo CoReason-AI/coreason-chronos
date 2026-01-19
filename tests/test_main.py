@@ -76,7 +76,7 @@ def test_forecast_command() -> None:
             lower_bound=[100.0, 102.0],
             upper_bound=[120.0, 122.0],
             confidence_level=0.9,
-            model_dump=lambda: {
+            model_dump=lambda **kwargs: {
                 "median": [110.0, 112.0],
                 "lower_bound": [100.0, 102.0],
                 "upper_bound": [120.0, 122.0],
