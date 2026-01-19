@@ -6,6 +6,7 @@ from typing import Optional
 
 import click
 from dateparser import parse
+from pydantic import ValidationError
 
 from coreason_chronos.agent import ChronosTimekeeper
 from coreason_chronos.schemas import TemporalEvent
@@ -88,23 +89,31 @@ def forecast(
         click.echo("Error: History must be a comma-separated list of numbers.", err=True)
         sys.exit(1)
 
-    agent = ChronosTimekeeper(model_name=model, device="cpu", quantization=quantization)
-    result = agent.forecast_series(history, steps, confidence)
+    try:
+        agent = ChronosTimekeeper(model_name=model, device="cpu", quantization=quantization)
+        result = agent.forecast_series(history, steps, confidence)
+    except (ValueError, ValidationError) as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
     click.echo(json.dumps(result.model_dump(mode="json"), indent=2))
 
     if plot_output:
-        import matplotlib.pyplot as plt
+        try:
+            import matplotlib.pyplot as plt
 
-        from coreason_chronos.schemas import ForecastRequest
-        from coreason_chronos.visualizer import plot_forecast
+            from coreason_chronos.schemas import ForecastRequest
+            from coreason_chronos.visualizer import plot_forecast
 
-        # Reconstruct request object since Agent consumes it internally
-        req = ForecastRequest(history=history, prediction_length=steps, confidence_level=confidence)
-        fig = plot_forecast(req, result, title="Chronos Forecast")
-        fig.savefig(plot_output)
-        plt.close(fig)
-        logger.info(f"Forecast plot saved to {plot_output}")
+            # Reconstruct request object since Agent consumes it internally
+            req = ForecastRequest(history=history, prediction_length=steps, confidence_level=confidence)
+            fig = plot_forecast(req, result, title="Chronos Forecast")
+            fig.savefig(plot_output)
+            plt.close(fig)
+            logger.info(f"Forecast plot saved to {plot_output}")
+        except OSError as e:
+            click.echo(f"Error: Failed to save plot. {e}", err=True)
+            sys.exit(1)
 
 
 @cli.command()
