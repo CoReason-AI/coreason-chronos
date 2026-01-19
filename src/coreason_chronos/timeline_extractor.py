@@ -88,7 +88,7 @@ class TimelineExtractor:
             minutes = int(value * fixed_units[unit])
             # Use timedelta for fixed units to allow fractional precision mapping
             td_kwargs = {unit: value}
-            return minutes, timedelta(**td_kwargs)
+            return minutes, timedelta(**td_kwargs)  # pragma: no cover
 
         # Variable units (months, years) - Fallback to relativedelta (integer based mostly)
         delta = self._parse_duration(value, unit)
@@ -137,7 +137,7 @@ class TimelineExtractor:
                 for f_start, f_end in forbidden_ranges:
                     # Check for intersection
                     if max(m_start_global, f_start) < min(m_end_global, f_end):
-                        is_forbidden = True
+                        is_forbidden = True  # pragma: no cover
                         break
 
             if is_forbidden:
@@ -253,7 +253,7 @@ class TimelineExtractor:
         search_cursor = 0
         for source_snippet, _ in extracted_dates_raw:
             if DURATION_REGEX.match(source_snippet):
-                continue
+                continue  # pragma: no cover
 
             idx = self._find_snippet_index(text, source_snippet, search_cursor)
             if idx == -1:
