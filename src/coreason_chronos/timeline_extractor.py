@@ -133,8 +133,10 @@ class TimelineExtractor:
             if forbidden_ranges:
                 for f_start, f_end in forbidden_ranges:
                     # Check for intersection
-                    if max(m_start_global, f_start) < min(m_end_global, f_end):
-                        is_forbidden = True  # pragma: no cover
+                    overlap_start = max(m_start_global, f_start)
+                    overlap_end = min(m_end_global, f_end)
+                    if overlap_start < overlap_end:
+                        is_forbidden = True
                         break
 
             if is_forbidden:
@@ -249,8 +251,9 @@ class TimelineExtractor:
         date_ranges = []
         search_cursor = 0
         for source_snippet, _ in extracted_dates_raw:
-            if DURATION_REGEX.match(source_snippet):
-                continue  # pragma: no cover
+            is_pure_duration = DURATION_REGEX.match(source_snippet)
+            if is_pure_duration:
+                continue
 
             idx = self._find_snippet_index(text, source_snippet, search_cursor)
             if idx == -1:
