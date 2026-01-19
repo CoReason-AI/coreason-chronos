@@ -1,9 +1,10 @@
-from datetime import datetime, timezone
 import json
-import os
 from unittest.mock import MagicMock, patch
+
 from click.testing import CliRunner
+
 from coreason_chronos.main import cli
+
 
 def test_extract_command_text() -> None:
     runner = CliRunner()
@@ -15,6 +16,7 @@ def test_extract_command_text() -> None:
     data = json.loads(result.output)
     assert isinstance(data, list)
     assert len(data) >= 2
+
 
 def test_extract_command_file() -> None:
     runner = CliRunner()
@@ -28,6 +30,7 @@ def test_extract_command_file() -> None:
         assert len(data) == 1
         assert "Jan 1st" in data[0]["source_snippet"]
 
+
 def test_extract_missing_args() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["extract"])
@@ -35,11 +38,13 @@ def test_extract_missing_args() -> None:
     assert result.exit_code != 0
     assert "Error: Must provide INPUT_TEXT argument or --file option" in result.output
 
+
 def test_extract_invalid_ref_date() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["extract", "Hello", "--ref-date", "NotADate"])
     assert result.exit_code != 0
     assert "Error: Could not parse reference date" in result.output
+
 
 def test_extract_naive_ref_date() -> None:
     # default is aware (now UTC).
@@ -52,6 +57,7 @@ def test_extract_naive_ref_date() -> None:
     # The code: if parsed_date.tzinfo is None: ...
     # This covers that branch.
 
+
 def test_extract_aware_ref_date() -> None:
     # Explicit TZ in string
     runner = CliRunner()
@@ -59,6 +65,7 @@ def test_extract_aware_ref_date() -> None:
     assert result.exit_code == 0
     # Code: else: parsed_date.astimezone(timezone.utc)
     # Covers else branch.
+
 
 def test_forecast_command() -> None:
     # Mock the heavy ChronosForecaster
@@ -73,8 +80,8 @@ def test_forecast_command() -> None:
                 "median": [110.0, 112.0],
                 "lower_bound": [100.0, 102.0],
                 "upper_bound": [120.0, 122.0],
-                "confidence_level": 0.9
-            }
+                "confidence_level": 0.9,
+            },
         )
 
         runner = CliRunner()
@@ -84,30 +91,24 @@ def test_forecast_command() -> None:
         data = json.loads(result.output)
         assert data["median"] == [110.0, 112.0]
 
+
 def test_validate_command() -> None:
     runner = CliRunner()
     # 2024-01-01 10:00 vs 2024-01-01 12:00. Delay 2 hours. Max 3 hours. -> Compliant.
-    result = runner.invoke(cli, [
-        "validate",
-        "2024-01-01T12:00:00",
-        "2024-01-01T10:00:00",
-        "--max-delay-hours", "3"
-    ])
+    result = runner.invoke(cli, ["validate", "2024-01-01T12:00:00", "2024-01-01T10:00:00", "--max-delay-hours", "3"])
 
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["is_compliant"] is True
 
     # Fail case
-    result_fail = runner.invoke(cli, [
-        "validate",
-        "2024-01-01T14:00:00",
-        "2024-01-01T10:00:00",
-        "--max-delay-hours", "3"
-    ])
+    result_fail = runner.invoke(
+        cli, ["validate", "2024-01-01T14:00:00", "2024-01-01T10:00:00", "--max-delay-hours", "3"]
+    )
     assert result_fail.exit_code == 0
     data_fail = json.loads(result_fail.output)
     assert data_fail["is_compliant"] is False
+
 
 def test_validate_invalid_dates() -> None:
     runner = CliRunner()
@@ -115,10 +116,12 @@ def test_validate_invalid_dates() -> None:
     assert result.exit_code != 0
     assert "Error: Could not parse dates" in result.output
 
+
 def test_extract_file_not_found() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["extract", "--file", "nonexistent.txt"])
     assert result.exit_code != 0
+
 
 def test_forecast_invalid_input() -> None:
     runner = CliRunner()

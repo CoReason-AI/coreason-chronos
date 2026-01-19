@@ -2,13 +2,13 @@
 import json
 import sys
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Optional
 
 import click
 from dateparser import parse
 
 from coreason_chronos.agent import ChronosTimekeeper
-from coreason_chronos.schemas import ComplianceResult, ForecastResult, TemporalEvent
+from coreason_chronos.schemas import TemporalEvent
 from coreason_chronos.utils.logger import logger
 from coreason_chronos.validator import MaxDelayRule
 
@@ -62,7 +62,7 @@ def extract(input_text: Optional[str], file: Optional[str], ref_date: str) -> No
 
     logger.info(f"Extracting events relative to {parsed_date}")
 
-    agent = ChronosTimekeeper(device="cpu") # CLI defaults to CPU for now
+    agent = ChronosTimekeeper(device="cpu")  # CLI defaults to CPU for now
     events = agent.extract_from_text(text, parsed_date)
 
     # Output JSON
@@ -108,8 +108,10 @@ def validate(target_time: str, reference_time: str, max_delay_hours: float) -> N
         sys.exit(1)
 
     # Ensure TZ
-    if t_time.tzinfo is None: t_time = t_time.replace(tzinfo=timezone.utc)
-    if r_time.tzinfo is None: r_time = r_time.replace(tzinfo=timezone.utc)
+    if t_time.tzinfo is None:
+        t_time = t_time.replace(tzinfo=timezone.utc)
+    if r_time.tzinfo is None:
+        r_time = r_time.replace(tzinfo=timezone.utc)
 
     rule = MaxDelayRule(max_delay=timedelta(hours=max_delay_hours))
 
@@ -122,19 +124,25 @@ def validate(target_time: str, reference_time: str, max_delay_hours: float) -> N
     # Agent.check_compliance takes TemporalEvent.
     # So I should create dummy events.
     from uuid import uuid4
+
     from coreason_chronos.schemas import TemporalGranularity
 
     t_event = TemporalEvent(
         id=uuid4(), description="Target", timestamp=t_time, granularity=TemporalGranularity.PRECISE, source_snippet=""
     )
     r_event = TemporalEvent(
-        id=uuid4(), description="Reference", timestamp=r_time, granularity=TemporalGranularity.PRECISE, source_snippet=""
+        id=uuid4(),
+        description="Reference",
+        timestamp=r_time,
+        granularity=TemporalGranularity.PRECISE,
+        source_snippet="",
     )
 
     agent = ChronosTimekeeper(device="cpu")
     result = agent.check_compliance(t_event, r_event, rule)
 
     click.echo(json.dumps(result.model_dump(), default=json_serializer, indent=2))
+
 
 if __name__ == "__main__":
     cli()  # pragma: no cover
