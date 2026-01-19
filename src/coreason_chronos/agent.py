@@ -21,6 +21,9 @@ class ChronosTimekeeper:
         model_name: str = DEFAULT_CHRONOS_MODEL,
         device: str = "cpu",
         quantization: Optional[str] = None,
+        extractor: Optional[TimelineExtractor] = None,
+        forecaster: Optional[ChronosForecaster] = None,
+        causality: Optional[CausalityEngine] = None,
     ) -> None:
         """
         Initialize the Timekeeper with its sub-components.
@@ -29,13 +32,18 @@ class ChronosTimekeeper:
             model_name: Name of the Chronos model to load.
             device: Device for the model ('cpu' or 'cuda').
             quantization: Quantization mode (e.g. 'int8') passed to Forecaster.
+            extractor: Optional injected TimelineExtractor instance.
+            forecaster: Optional injected ChronosForecaster instance.
+            causality: Optional injected CausalityEngine instance.
         """
         logger.info(
             f"Initializing ChronosTimekeeper (Model: {model_name}, Device: {device}, Quantization: {quantization})"
         )
-        self.extractor = TimelineExtractor()
-        self.forecaster = ChronosForecaster(model_name=model_name, device=device, quantization=quantization)
-        self.causality = CausalityEngine()
+        self.extractor = extractor or TimelineExtractor()
+        self.forecaster = forecaster or ChronosForecaster(
+            model_name=model_name, device=device, quantization=quantization
+        )
+        self.causality = causality or CausalityEngine()
 
     def extract_from_text(self, text: str, reference_date: datetime) -> List[TemporalEvent]:
         """

@@ -1,13 +1,14 @@
 # Prosperity Public License 3.0
 from datetime import datetime, timedelta, timezone
-from typing import Generator
-from unittest.mock import MagicMock, patch
+from typing import cast
+from unittest.mock import MagicMock
 
 import pytest
 from matplotlib.figure import Figure
 
 from coreason_chronos.agent import ChronosTimekeeper
-from coreason_chronos.schemas import ComplianceResult
+from coreason_chronos.forecaster import ChronosForecaster
+from coreason_chronos.schemas import ComplianceResult, ForecastResult
 from coreason_chronos.validator import MaxDelayRule
 
 
@@ -19,22 +20,26 @@ class TestComplexSmoke:
     """
 
     @pytest.fixture
-    def mock_forecaster_pipeline(self) -> Generator[MagicMock, None, None]:
+    def mock_forecaster(self) -> MagicMock:
         """
-        Mocks the internal pipeline of the ChronosForecaster to avoid loading the T5 model.
+        Mocks the ChronosForecaster component using dependency injection.
         """
-        with patch("coreason_chronos.forecaster.ChronosPipeline") as mock_pipeline_cls:
-            mock_pipeline_instance = MagicMock()
-            mock_pipeline_cls.from_pretrained.return_value = mock_pipeline_instance
-            yield mock_pipeline_instance
+        mock = MagicMock(spec=ChronosForecaster)
+        # Setup default return for forecast
+        mock.forecast.return_value = ForecastResult(
+            median=[105.0] * 5,
+            lower_bound=[100.0] * 5,
+            upper_bound=[110.0] * 5,
+            confidence_level=0.9,
+        )
+        return mock
 
     @pytest.fixture
-    def agent(self, mock_forecaster_pipeline: MagicMock) -> ChronosTimekeeper:
+    def agent(self, mock_forecaster: MagicMock) -> ChronosTimekeeper:
         """
-        Initializes the Timekeeper agent (which will use the mocked pipeline).
+        Initializes the Timekeeper agent using dependency injection.
         """
-        # parameters don't matter much since pipeline is mocked
-        return ChronosTimekeeper(model_name="mock-model", device="cpu")
+        return ChronosTimekeeper(forecaster=mock_forecaster)
 
     def test_incident_response_workflow(self, agent: ChronosTimekeeper) -> None:
         """
@@ -114,20 +119,7 @@ class TestComplexSmoke:
 
         # --- 4. Forecasting (Mocked) ---
         # Context: Trial Manager asks for enrollment forecast.
-        # We mock the Forecaster output because we don't want to load the T5 model.
-
-        # Setup the mock on the forecaster instance specifically
-        # (The agent.forecaster.pipeline is the mock object from the fixture)
-        mock_pipeline = agent.forecaster.pipeline
-
-        # shape: [num_series, num_samples, prediction_length]
-        # We simulate 1 series, 20 samples, 5 steps
-        import torch
-
-        mock_output = torch.rand((1, 20, 5))
-        # Adjust values to be somewhat realistic for the median check
-        mock_output = mock_output * 10 + 100  # range 100-110
-        mock_pipeline.predict.return_value = mock_output
+        # We mock the Forecaster output via DI.
 
         history = [10.0, 12.0, 15.0, 18.0]
         prediction_length = 5
@@ -136,8 +128,10 @@ class TestComplexSmoke:
 
         assert len(forecast_result.median) == prediction_length
         assert forecast_result.confidence_level == 0.9
+
         # Verify the mock was called
-        mock_pipeline.predict.assert_called_once()
+        # agent.forecaster is the mock object passed in __init__
+        cast(MagicMock, agent.forecaster.forecast).assert_called_once()
 
         # --- 5. Visualization ---
         from coreason_chronos.schemas import ForecastRequest
