@@ -1,19 +1,21 @@
 from datetime import datetime, timedelta, timezone
-from uuid import UUID
 from unittest.mock import MagicMock, patch
 
 import pytest
 from dateutil.relativedelta import relativedelta
+
 from coreason_chronos.timeline_extractor import TimelineExtractor
-from coreason_chronos.schemas import TemporalEvent
+
 
 @pytest.fixture
 def extractor() -> TimelineExtractor:
     return TimelineExtractor()
 
+
 @pytest.fixture
 def ref_date() -> datetime:
     return datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+
 
 def test_duration_extraction_basic(extractor: TimelineExtractor, ref_date: datetime) -> None:
     """
@@ -28,17 +30,20 @@ def test_duration_extraction_basic(extractor: TimelineExtractor, ref_date: datet
     assert event.duration_minutes == 3 * 24 * 60
     assert event.ends_at == event.timestamp + timedelta(days=3)
 
+
 def test_duration_extraction_lasting(extractor: TimelineExtractor, ref_date: datetime) -> None:
     text = "Surgery occurred on 2024-01-10, lasting 4 hours."
     events = extractor.extract_events(text, ref_date)
     assert len(events) == 1
     assert events[0].duration_minutes == 4 * 60
 
+
 def test_duration_extraction_spanning(extractor: TimelineExtractor, ref_date: datetime) -> None:
     text = "The treatment phase began on Jan 5th, spanning 2 weeks."
     events = extractor.extract_events(text, ref_date)
     assert len(events) == 1
     assert events[0].duration_minutes == 14 * 24 * 60
+
 
 def test_duration_extraction_anchored_event(extractor: TimelineExtractor, ref_date: datetime) -> None:
     text = "Admission on Jan 1st. 2 days after admission, rash appeared for 5 hours."
@@ -51,11 +56,13 @@ def test_duration_extraction_anchored_event(extractor: TimelineExtractor, ref_da
     assert rash.timestamp.day == 3
     assert rash.duration_minutes == 5 * 60
 
+
 def test_duration_extraction_fractional(extractor: TimelineExtractor, ref_date: datetime) -> None:
     text = "Symptoms persisted from Jan 2nd for 1.5 days."
     events = extractor.extract_events(text, ref_date)
     assert len(events) == 1
     assert events[0].duration_minutes == 36 * 60
+
 
 def test_multiple_events_distinct_durations(extractor: TimelineExtractor, ref_date: datetime) -> None:
     text = "First event started on 2024-01-01 for 2 hours. Second event started on 2024-01-05 for 30 minutes."
@@ -65,11 +72,13 @@ def test_multiple_events_distinct_durations(extractor: TimelineExtractor, ref_da
     assert events[0].duration_minutes == 120
     assert events[1].duration_minutes == 30
 
+
 def test_no_duration(extractor: TimelineExtractor, ref_date: datetime) -> None:
     text = "Meeting on Jan 1st."
     events = extractor.extract_events(text, ref_date)
     assert len(events) == 1
     assert events[0].duration_minutes is None
+
 
 def test_duration_units_minutes_seconds(extractor: TimelineExtractor, ref_date: datetime) -> None:
     text2 = "Event on Jan 1st for 10 minutes."
@@ -80,11 +89,13 @@ def test_duration_units_minutes_seconds(extractor: TimelineExtractor, ref_date: 
     events3 = extractor.extract_events(text3, ref_date)
     assert events3[0].duration_minutes == 2
 
+
 def test_duration_before_event(extractor: TimelineExtractor, ref_date: datetime) -> None:
     text = "For 3 days, starting Jan 5th, patient had fever."
     events = extractor.extract_events(text, ref_date)
     assert len(events) == 1
     assert events[0].duration_minutes == 3 * 24 * 60
+
 
 def test_zero_duration(extractor: TimelineExtractor, ref_date: datetime) -> None:
     text = "Event on Jan 1st for 0 hours."
@@ -92,10 +103,12 @@ def test_zero_duration(extractor: TimelineExtractor, ref_date: datetime) -> None
     assert len(events) == 1
     assert events[0].duration_minutes is None
 
+
 def test_pure_duration_ignored(extractor: TimelineExtractor, ref_date: datetime) -> None:
     text = "The patient was treated for 3 months."
     events = extractor.extract_events(text, ref_date)
     assert len(events) == 0
+
 
 def test_anchored_zero_duration(extractor: TimelineExtractor, ref_date: datetime) -> None:
     text = "Admission on Jan 1st. 2 days after admission for 0 hours."
@@ -103,6 +116,7 @@ def test_anchored_zero_duration(extractor: TimelineExtractor, ref_date: datetime
     events.sort(key=lambda x: x.timestamp)
     anchored = events[1]
     assert anchored.duration_minutes is None
+
 
 def test_calculate_total_minutes_and_delta_direct(extractor: TimelineExtractor) -> None:
     """
@@ -133,6 +147,7 @@ def test_calculate_total_minutes_and_delta_direct(extractor: TimelineExtractor) 
     assert mins == 60
     assert delta == timedelta(hours=1)
 
+
 def test_intervening_case_2(extractor: TimelineExtractor, ref_date: datetime) -> None:
     """
     Test Case 2: Match < Forbidden < Snippet.
@@ -146,11 +161,10 @@ def test_intervening_case_2(extractor: TimelineExtractor, ref_date: datetime) ->
     if admission_events:
         assert admission_events[0].duration_minutes is None
 
+
 @patch("coreason_chronos.timeline_extractor.search_dates")
 def test_duration_regex_ignored_mock(
-    mock_search_dates: MagicMock,
-    extractor: TimelineExtractor,
-    ref_date: datetime
+    mock_search_dates: MagicMock, extractor: TimelineExtractor, ref_date: datetime
 ) -> None:
     """
     Mock search_dates to return a pure duration snippet to ensure it is ignored.
@@ -160,6 +174,7 @@ def test_duration_regex_ignored_mock(
 
     events = extractor.extract_events("treated for 3 months", ref_date)
     assert len(events) == 0
+
 
 def test_duration_overlap_forbidden(extractor: TimelineExtractor, ref_date: datetime) -> None:
     """
@@ -178,6 +193,7 @@ def test_duration_overlap_forbidden(extractor: TimelineExtractor, ref_date: date
     # Should return None because match overlaps forbidden
     assert mins is None
     assert delta is None
+
 
 def test_duration_variable_units(extractor: TimelineExtractor, ref_date: datetime) -> None:
     """
