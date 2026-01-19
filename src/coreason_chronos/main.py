@@ -13,13 +13,6 @@ from coreason_chronos.utils.logger import logger
 from coreason_chronos.validator import MaxDelayRule
 
 
-def json_serializer(obj: object) -> str:
-    """JSON serializer for objects not serializable by default json code"""
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    return str(obj)
-
-
 @click.group()
 def cli() -> None:
     """Coreason Chronos: Temporal Reasoning & Forecasting CLI"""
@@ -66,8 +59,8 @@ def extract(input_text: Optional[str], file: Optional[str], ref_date: str) -> No
     events = agent.extract_from_text(text, parsed_date)
 
     # Output JSON
-    output = [event.model_dump() for event in events]
-    click.echo(json.dumps(output, default=json_serializer, indent=2))
+    output = [event.model_dump(mode="json") for event in events]
+    click.echo(json.dumps(output, indent=2))
 
 
 @cli.command()
@@ -89,7 +82,7 @@ def forecast(history_str: str, steps: int, confidence: float, model: str) -> Non
     agent = ChronosTimekeeper(model_name=model, device="cpu")
     result = agent.forecast_series(history, steps, confidence)
 
-    click.echo(json.dumps(result.model_dump(), default=json_serializer, indent=2))
+    click.echo(json.dumps(result.model_dump(mode="json"), indent=2))
 
 
 @cli.command()
@@ -141,7 +134,7 @@ def validate(target_time: str, reference_time: str, max_delay_hours: float) -> N
     agent = ChronosTimekeeper(device="cpu")
     result = agent.check_compliance(t_event, r_event, rule)
 
-    click.echo(json.dumps(result.model_dump(), default=json_serializer, indent=2))
+    click.echo(json.dumps(result.model_dump(mode="json"), indent=2))
 
 
 if __name__ == "__main__":
