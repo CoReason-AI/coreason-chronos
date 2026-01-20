@@ -12,7 +12,10 @@ DEFAULT_CHRONOS_MODEL = "amazon/chronos-t5-tiny"
 
 class ChronosForecaster:
     """
-    Forecasting engine using Amazon Chronos T5 model.
+    The Oracle: Forecasting engine using Amazon Chronos T5 model.
+
+    This class wraps the Foundation Time-Series Model to provide zero-shot forecasting capabilities.
+    It handles tokenization, inference, and quantile estimation to generate probabilistic forecasts.
     """
 
     def __init__(
@@ -25,7 +28,7 @@ class ChronosForecaster:
         Initialize the Chronos pipeline.
 
         Args:
-            model_name: The HuggingFace model identifier.
+            model_name: The HuggingFace model identifier (e.g., "amazon/chronos-t5-small").
             device: Device to run the model on ('cpu' or 'cuda').
             quantization: Quantization mode (e.g., 'int8').
                           If 'int8', uses `load_in_8bit=True` (requires bitsandbytes).
@@ -61,13 +64,13 @@ class ChronosForecaster:
 
     def forecast(self, request: ForecastRequest) -> ForecastResult:
         """
-        Generate a forecast based on the request.
+        Generate a probabilistic forecast based on the request.
 
         Args:
-            request: The forecasting request containing history and parameters.
+            request: The forecasting request containing history, horizon, and confidence level.
 
         Returns:
-            ForecastResult containing median and confidence intervals.
+            ForecastResult containing median prediction and confidence intervals.
         """
         logger.debug(f"Received forecast request for {len(request.history)} history points.")
 

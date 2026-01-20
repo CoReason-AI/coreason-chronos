@@ -12,8 +12,13 @@ from coreason_chronos.validator import ValidationRule
 
 class ChronosTimekeeper:
     """
-    The main agent orchestration class for the Extract-Align-Forecast loop.
-    Acts as a facade over the specialized components.
+    The Timekeeper: Orchestrates the Extract-Align-Forecast loop.
+
+    This agent serves as the central facade for the library, integrating:
+    - Timeline Extraction (The Historian)
+    - Forecasting (The Oracle)
+    - Causal Analysis (The Sequencer)
+    - Compliance Checking (The Compliance Clock)
     """
 
     def __init__(
@@ -29,7 +34,7 @@ class ChronosTimekeeper:
         Initialize the Timekeeper with its sub-components.
 
         Args:
-            model_name: Name of the Chronos model to load.
+            model_name: Name of the Chronos model to load (if forecaster is not injected).
             device: Device for the model ('cpu' or 'cuda').
             quantization: Quantization mode (e.g. 'int8') passed to Forecaster.
             extractor: Optional injected TimelineExtractor instance.
@@ -47,14 +52,14 @@ class ChronosTimekeeper:
 
     def extract_from_text(self, text: str, reference_date: datetime) -> List[TemporalEvent]:
         """
-        Extracts a timeline of events from unstructured text.
+        Extracts a timeline of events from unstructured text (Longitudinal Reconstruction).
 
         Args:
             text: The unstructured text to process.
             reference_date: The anchor date for relative time calculations.
 
         Returns:
-            A list of resolved TemporalEvents.
+            A list of resolved TemporalEvents, sorted chronologically.
         """
         logger.info(f"Agent: Extracting timeline from text (Length: {len(text)} chars)")
         return self.extractor.extract_events(text, reference_date)
@@ -63,7 +68,7 @@ class ChronosTimekeeper:
         self, history: List[float], prediction_length: int, confidence_level: float = 0.9
     ) -> ForecastResult:
         """
-        Generates a forecast for the given time series history.
+        Generates a forecast for the given time series history (Zero-Shot Prediction).
 
         Args:
             history: List of historical values.

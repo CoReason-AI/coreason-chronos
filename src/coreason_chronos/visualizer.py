@@ -10,7 +10,9 @@ def plot_forecast(
     request: ForecastRequest, result: ForecastResult, title: str = "Forecast", ylabel: str = "Value"
 ) -> Figure:
     """
-    Generates a matplotlib Figure showing the history and the forecast with confidence intervals.
+    Generates a matplotlib Figure showing the historical data and the forecast with confidence intervals.
+
+    This visualizer connects the last historical point to the first forecast point to ensure visual continuity.
 
     Args:
         request: The forecast request containing historical data.
@@ -19,7 +21,7 @@ def plot_forecast(
         ylabel: Label for the Y-axis.
 
     Returns:
-        A matplotlib Figure object.
+        A matplotlib Figure object containing the plotted data.
     """
     logger.debug(f"Generating forecast plot: {title}")
 

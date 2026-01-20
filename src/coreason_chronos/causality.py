@@ -8,6 +8,8 @@ from coreason_chronos.utils.logger import logger
 class AllenRelation(str, Enum):
     """
     The 13 basic relations of Allen's Interval Algebra.
+
+    Used to describe the temporal relationship between two intervals.
     """
 
     BEFORE = "BEFORE"
@@ -36,7 +38,7 @@ def get_interval_relation(start_a: datetime, end_a: datetime, start_b: datetime,
         end_b: End time of interval B.
 
     Returns:
-        The AllenRelation describing the relationship A -> B.
+        The AllenRelation describing the relationship A -> B (e.g., A BEFORE B).
 
     Raises:
         ValueError: If any datetime is naive, or if any interval is invalid (start >= end).
@@ -106,13 +108,24 @@ def get_interval_relation(start_a: datetime, end_a: datetime, start_b: datetime,
 
 class CausalityEngine:
     """
-    High-level engine for determining causal relationships between events.
+    The Sequencer: Determines 'Before/After' relationships and temporal plausibility.
+
+    This engine applies Allen's Interval Algebra to determine if a causal link
+    between two events is temporally valid.
     """
 
     def _resolve_interval(self, event: TemporalEvent) -> tuple[datetime, datetime]:
         """
         Resolves a TemporalEvent into a strict [start, end) interval.
-        Point events are converted to [timestamp, timestamp + 1 microsecond].
+
+        Point events are converted to [timestamp, timestamp + 1 microsecond] to satisfy
+        interval algebra requirements where start < end.
+
+        Args:
+            event: The TemporalEvent to resolve.
+
+        Returns:
+            A tuple (start, end) representing the interval.
         """
         start = event.timestamp
         end = None
@@ -132,6 +145,13 @@ class CausalityEngine:
     def get_relation(self, event_a: TemporalEvent, event_b: TemporalEvent) -> AllenRelation:
         """
         Determines the Allen Relation between two TemporalEvents.
+
+        Args:
+            event_a: The first event (A).
+            event_b: The second event (B).
+
+        Returns:
+            The AllenRelation describing A relative to B.
         """
         start_a, end_a = self._resolve_interval(event_a)
         start_b, end_b = self._resolve_interval(event_b)
@@ -142,25 +162,32 @@ class CausalityEngine:
         """
         Determines if 'cause' is temporally plausible as a cause for 'effect'.
 
-        Plausibility Rule: Cause must start BEFORE or SIMULTANEOUSLY with the Effect's start.
-        (Cause Start <= Effect Start)
+        Plausibility Rule: A cause must start BEFORE or SIMULTANEOUSLY with the Effect's start.
+        (Start(Cause) <= Start(Effect)).
 
         This maps to the following Allen Relations:
-        - BEFORE (Cause < Effect)
-        - MEETS (Cause touches Effect start)
-        - OVERLAPS (Cause starts before, overlaps Effect)
-        - FINISHED_BY (Cause ends with Effect, starts before)
-        - CONTAINS (Cause contains Effect)
-        - STARTS (Cause starts with Effect)
-        - STARTED_BY (Cause starts with Effect)
-        - EQUALS (Same interval)
+        - BEFORE: Cause ends before Effect starts.
+        - MEETS: Cause ends exactly when Effect starts.
+        - OVERLAPS: Cause starts before and overlaps Effect.
+        - FINISHED_BY: Cause ends with Effect but started earlier.
+        - CONTAINS: Cause fully encloses Effect.
+        - STARTS: Cause starts with Effect (and ends earlier).
+        - STARTED_BY: Cause starts with Effect (and ends later).
+        - EQUALS: Same interval.
 
-        Implausible:
+        Implausible relations (Cause starts strictly after Effect):
         - AFTER
         - MET_BY
         - OVERLAPPED_BY
         - FINISHES
-        - DURING (Cause starts AFTER Effect starts)
+        - DURING
+
+        Args:
+            cause: The hypothesized cause event.
+            effect: The hypothesized effect event.
+
+        Returns:
+            True if the causal relationship is temporally plausible, False otherwise.
         """
         try:
             relation = self.get_relation(cause, effect)
