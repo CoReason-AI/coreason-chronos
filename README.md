@@ -2,9 +2,10 @@
 
 Domain: Temporal Reasoning, Time-Series Forecasting, & Longitudinal Reconstruction
 
-[![License](https://img.shields.io/badge/License-Prosperity%203.0-blue)](https://github.com/CoReason-AI/coreason_chronos)
+[![License](https://img.shields.io/badge/license-Prosperity%203.0-blue)](https://github.com/CoReason-AI/coreason_chronos)
 [![CI](https://github.com/CoReason-AI/coreason_chronos/actions/workflows/ci.yml/badge.svg)](https://github.com/CoReason-AI/coreason_chronos/actions/workflows/ci.yml)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/CoReason-AI/coreason_chronos)
+[![Docs](https://img.shields.io/badge/docs-PRD-informational)](docs/product_requirements.md)
 
 ## Overview
 
@@ -92,8 +93,8 @@ from coreason_chronos.validator import MaxDelayRule
 rule = MaxDelayRule(max_delay=timedelta(hours=24))
 
 # ... (assuming target_event and ref_event are TemporalEvent objects)
-result = agent.check_compliance(target_event, ref_event, rule)
+# result = agent.check_compliance(target_event, ref_event, rule)
 
-if not result.is_compliant:
-    print(f"Compliance Violation! Drift: {result.drift}")
+# if not result.is_compliant:
+#     print(f"Compliance Violation! Drift: {result.drift}")
 ```
