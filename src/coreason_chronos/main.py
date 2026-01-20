@@ -32,6 +32,8 @@ def cli() -> None:
 def extract(input_text: Optional[str], file: Optional[str], ref_date: str) -> None:
     """
     Extract temporal events from text or file.
+
+    Performs longitudinal reconstruction by parsing absolute and relative dates relative to a reference date.
     """
     if file:
         with open(file, "r", encoding="utf-8") as f:
@@ -80,8 +82,8 @@ def forecast(
     plot_output: Optional[str],
 ) -> None:
     """
-    Forecast future values based on history.
-    HISTORY should be a comma-separated list of numbers.
+    Forecast future values based on history using SOTA foundation models.
+    HISTORY should be a comma-separated list of numbers (e.g., "10,20,30").
     """
     try:
         history = [float(x.strip()) for x in history_str.split(",")]
@@ -122,7 +124,7 @@ def forecast(
 @click.option("--max-delay-hours", "-h", type=float, required=True, help="Maximum allowed delay in hours.")
 def validate(target_time: str, reference_time: str, max_delay_hours: float) -> None:
     """
-    Check if Target Time is within Max Delay of Reference Time.
+    Check if Target Time is within Max Delay of Reference Time (GxP Compliance).
     """
     t_time = parse(target_time)
     r_time = parse(reference_time)
