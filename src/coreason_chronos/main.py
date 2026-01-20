@@ -58,8 +58,8 @@ def extract(input_text: Optional[str], file: Optional[str], ref_date: str) -> No
 
     logger.info(f"Extracting events relative to {parsed_date}")
 
-    agent = ChronosTimekeeper(device="cpu")  # CLI defaults to CPU for now
-    events = agent.extract_from_text(text, parsed_date)
+    with ChronosTimekeeper(device="cpu") as agent:  # CLI defaults to CPU for now
+        events = agent.extract_from_text(text, parsed_date)
 
     # Output JSON
     output = [event.model_dump(mode="json") for event in events]
@@ -92,8 +92,8 @@ def forecast(
         sys.exit(1)
 
     try:
-        agent = ChronosTimekeeper(model_name=model, device="cpu", quantization=quantization)
-        result = agent.forecast_series(history, steps, confidence)
+        with ChronosTimekeeper(model_name=model, device="cpu", quantization=quantization) as agent:
+            result = agent.forecast_series(history, steps, confidence)
     except (ValueError, ValidationError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -164,8 +164,8 @@ def validate(target_time: str, reference_time: str, max_delay_hours: float) -> N
         source_snippet="",
     )
 
-    agent = ChronosTimekeeper(device="cpu")
-    result = agent.check_compliance(t_event, r_event, rule)
+    with ChronosTimekeeper(device="cpu") as agent:
+        result = agent.check_compliance(t_event, r_event, rule)
 
     click.echo(json.dumps(result.model_dump(mode="json"), indent=2))
 
