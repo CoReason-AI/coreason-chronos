@@ -1,8 +1,11 @@
 # Stage 1: Builder
 FROM python:3.12-slim AS builder
 
+# Upgrade system packages to fix vulnerabilities
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+
 # Install build dependencies
-RUN pip install --no-cache-dir build==1.3.0
+RUN pip install --no-cache-dir build==1.4.0
 
 # Set the working directory
 WORKDIR /app
@@ -19,6 +22,9 @@ RUN python -m build --wheel --outdir /wheels
 
 # Stage 2: Runtime
 FROM python:3.12-slim AS runtime
+
+# Upgrade system packages to fix vulnerabilities
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user
 RUN useradd --create-home --shell /bin/bash appuser
