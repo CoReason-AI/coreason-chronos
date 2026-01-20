@@ -26,8 +26,12 @@ ANCHOR_REGEX = re.compile(
 
 class TimelineExtractor:
     """
-    Extracts timeline events from text, converting relative dates to absolute ones
-    based on a reference date.
+    The Historian: Turns text into a timeline.
+
+    Implements a multi-pass strategy to extract events:
+    1.  Absolute/Simple Relative extraction (using dateparser).
+    2.  Anchored extraction (using regex and fuzzy matching for "2 days after X").
+    3.  Anchor resolution logic to link relative events to established absolute timestamps.
     """
 
     def __init__(self) -> None:
@@ -36,14 +40,29 @@ class TimelineExtractor:
     def _find_snippet_index(self, text: str, snippet: str, start_index: int = 0) -> int:
         """
         Locates the snippet in the text starting from start_index.
-        Returns the index or -1 if not found.
+
+        Args:
+            text: The full text.
+            snippet: The substring to find.
+            start_index: The index to start searching from.
+
+        Returns:
+            The start index of the snippet, or -1 if not found.
         """
         return text.find(snippet, start_index)
 
     def _get_context_description(self, text: str, start: int, end: int, window: int = 50) -> str:
         """
-        Extracts context around the match to serve as the event description.
-        Captures `window` characters before and after.
+        Extracts context around a match to serve as the event description.
+
+        Args:
+            text: The full source text.
+            start: Start index of the match.
+            end: End index of the match.
+            window: Number of characters to capture before and after.
+
+        Returns:
+            A clean string containing the surrounding context.
         """
         ctx_start = max(0, start - window)
         ctx_end = min(len(text), end + window)
@@ -52,7 +71,14 @@ class TimelineExtractor:
 
     def _parse_duration(self, value: float, unit: str) -> relativedelta:
         """
-        Converts a value and unit string into a relativedelta.
+        Converts a value and unit string into a relativedelta object.
+
+        Args:
+            value: The numeric duration value (e.g., 2.5).
+            unit: The time unit (e.g., "days").
+
+        Returns:
+            A relativedelta representing the duration.
         """
         unit = unit.lower()
         if not unit.endswith("s"):
@@ -68,8 +94,13 @@ class TimelineExtractor:
 
     def _extract_anchored_candidates(self, text: str) -> List[Dict[str, Any]]:
         """
-        Scans text for anchored event patterns.
-        Returns a list of dictionaries with match details.
+        Scans text for anchored event patterns (e.g., "2 days after admission").
+
+        Args:
+            text: The text to scan.
+
+        Returns:
+            A list of candidate dictionaries containing match details.
         """
         candidates = []
         for match in ANCHOR_REGEX.finditer(text):
@@ -89,6 +120,12 @@ class TimelineExtractor:
     def _clean_text_for_matching(self, s: str) -> str:
         """
         Cleans text for semantic matching (lowercase, remove punctuation, remove stop words).
+
+        Args:
+            s: The input string.
+
+        Returns:
+            The cleaned string.
         """
         stop_words = {"the", "a", "an", "of", "to", "in", "on", "at", "for", "with", "by"}
         # lower, remove non-word chars except spaces
@@ -101,6 +138,13 @@ class TimelineExtractor:
         """
         Calculates a semantic match score between the anchor phrase and the target text.
         Uses RapidFuzz for standard, efficient matching.
+
+        Args:
+            anchor: The anchor phrase to match (e.g., "admission").
+            target_text: The target text to search in (e.g., "Patient admission date").
+
+        Returns:
+            A float score between 0.0 and 1.0.
         """
         anchor_clean = self._clean_text_for_matching(anchor)
         target_clean = self._clean_text_for_matching(target_text)
@@ -140,7 +184,13 @@ class TimelineExtractor:
     def _extract_standard_events(self, text: str, reference_date: datetime) -> List[Dict[str, Any]]:
         """
         Pass 1: Extracts absolute and simple relative dates using dateparser.
-        Returns a list of metadata dictionaries.
+
+        Args:
+            text: The text to parse.
+            reference_date: The base date for relative calculations (e.g., "today").
+
+        Returns:
+            A list of metadata dictionaries containing resolved events and their positions.
         """
         settings = {
             "RELATIVE_BASE": reference_date.replace(tzinfo=None),
@@ -201,6 +251,16 @@ class TimelineExtractor:
     ) -> Optional[TemporalEvent]:
         """
         Finds the best matching event for a given anchor phrase based on semantic score and proximity.
+
+        Args:
+            anchor_phrase: The phrase identifying the anchor (e.g., "surgery").
+            cand_start: Start index of the anchored phrase.
+            cand_end: End index of the anchored phrase.
+            text: Full text.
+            resolved_events_meta: Pool of already resolved events.
+
+        Returns:
+            The best matching TemporalEvent, or None if no suitable match found.
         """
         fuzzy_candidates = []
 
@@ -256,6 +316,11 @@ class TimelineExtractor:
         """
         Iteratively resolves anchored candidates against the pool of resolved events.
         Modifies resolved_events_meta in place.
+
+        Args:
+            text: Full text.
+            anchored_candidates: List of detected anchor patterns.
+            resolved_events_meta: List of currently resolved events.
         """
         unresolved_candidates = list(anchored_candidates)
         max_iterations = len(anchored_candidates) + 1  # Safe upper bound
@@ -312,7 +377,18 @@ class TimelineExtractor:
 
     def extract_events(self, text: str, reference_date: datetime) -> List[TemporalEvent]:
         """
-        Extracts events from the given text.
+        Main entry point: Extracts events from the given text relative to a reference date.
+
+        Args:
+            text: The unstructured text containing temporal information.
+            reference_date: The anchor date (usually document metadata date) for interpreting relative terms
+                            like "today".
+
+        Returns:
+            A list of TemporalEvent objects, sorted chronologically.
+
+        Raises:
+            ValueError: If reference_date is not timezone-aware.
         """
         if reference_date.tzinfo is None:
             raise ValueError("reference_date must be timezone-aware")

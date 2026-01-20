@@ -1,0 +1,11 @@
+click
+pydantic
+python-dateutil
+dateparser
+rapidfuzz
+numpy
+torch
+chronos-forecasting
+transformers
+matplotlib
+loguru
