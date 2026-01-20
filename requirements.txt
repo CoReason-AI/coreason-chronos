@@ -1,11 +1,11 @@
+chronos-forecasting
 click
+dateparser
+loguru
+matplotlib
+numpy
 pydantic
 python-dateutil
-dateparser
 rapidfuzz
-numpy
 torch
-chronos-forecasting
 transformers
-matplotlib
-loguru
