@@ -1,6 +1,7 @@
 import pytest
 from coreason_identity.models import UserContext
 
+
 @pytest.fixture
 def user_context() -> UserContext:
     return UserContext(

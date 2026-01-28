@@ -228,9 +228,7 @@ class ChronosTimekeeper:
 
     def analyze_causality(self, cause: TemporalEvent, effect: TemporalEvent, *, context: UserContext) -> bool:
         """Synchronous wrapper for analyze_causality."""
-        return cast(
-            bool, anyio.run(partial(self._async.analyze_causality, cause, effect, context=context))
-        )
+        return cast(bool, anyio.run(partial(self._async.analyze_causality, cause, effect, context=context)))
 
     # Expose underlying components for compatibility if needed, or deprecate direct access.
     # The existing tests access agent.forecaster directly.

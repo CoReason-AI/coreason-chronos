@@ -5,9 +5,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import click
+from coreason_identity.models import UserContext
 from dateparser import parse
 from pydantic import ValidationError
-from coreason_identity.models import UserContext
 
 from coreason_chronos.agent import ChronosTimekeeper
 from coreason_chronos.schemas import TemporalEvent

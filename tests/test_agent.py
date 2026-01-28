@@ -77,9 +77,7 @@ class TestChronosTimekeeper:
                 mock_forecaster_instance.forecast.return_value = expected_result
 
                 # 3. Use the agent
-                result = agent.forecast_series(
-                    history=[1.0, 2.0], prediction_length=3, context=user_context
-                )
+                result = agent.forecast_series(history=[1.0, 2.0], prediction_length=3, context=user_context)
 
                 assert result == expected_result
                 mock_forecaster_instance.forecast.assert_called_once()
@@ -109,9 +107,7 @@ class TestChronosTimekeeper:
         mock_fc.forecast.return_value = expected_result
 
         with ChronosTimekeeper() as agent:
-            result = agent.forecast_series(
-                history, prediction_length=5, confidence_level=0.8, context=user_context
-            )
+            result = agent.forecast_series(history, prediction_length=5, confidence_level=0.8, context=user_context)
 
         assert result == expected_result
 
