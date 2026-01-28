@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from coreason_identity.models import UserContext
 
 from coreason_chronos.agent import ChronosTimekeeper, ChronosTimekeeperAsync
 from coreason_chronos.schemas import ComplianceResult, ForecastResult, TemporalEvent, TemporalGranularity
@@ -55,7 +56,7 @@ class TestChronosTimekeeper:
             ChronosTimekeeper(model_name="custom-model", device="cuda", quantization="int8")
             mock_fc_cls.assert_called_with(model_name="custom-model", device="cuda", quantization="int8")
 
-    def test_agent_lifecycle_with_quantization(self) -> None:
+    def test_agent_lifecycle_with_quantization(self, user_context: UserContext) -> None:
         """
         Test that initialization with quantization yields a working agent
         that uses the quantized forecaster (mocked).
@@ -76,12 +77,16 @@ class TestChronosTimekeeper:
                 mock_forecaster_instance.forecast.return_value = expected_result
 
                 # 3. Use the agent
-                result = agent.forecast_series(history=[1.0, 2.0], prediction_length=3)
+                result = agent.forecast_series(
+                    history=[1.0, 2.0], prediction_length=3, context=user_context
+                )
 
                 assert result == expected_result
                 mock_forecaster_instance.forecast.assert_called_once()
 
-    def test_extract_from_text(self, mock_components: tuple[MagicMock, MagicMock, MagicMock]) -> None:
+    def test_extract_from_text(
+        self, mock_components: tuple[MagicMock, MagicMock, MagicMock], user_context: UserContext
+    ) -> None:
         mock_ext, _, _ = mock_components
 
         ref_date = datetime(2024, 1, 1, tzinfo=timezone.utc)
@@ -89,12 +94,14 @@ class TestChronosTimekeeper:
         mock_ext.extract_events.return_value = expected_events
 
         with ChronosTimekeeper() as agent:
-            result = agent.extract_from_text("some text", ref_date)
+            result = agent.extract_from_text("some text", ref_date, context=user_context)
 
         assert result == expected_events
         mock_ext.extract_events.assert_called_with("some text", ref_date)
 
-    def test_forecast_series(self, mock_components: tuple[MagicMock, MagicMock, MagicMock]) -> None:
+    def test_forecast_series(
+        self, mock_components: tuple[MagicMock, MagicMock, MagicMock], user_context: UserContext
+    ) -> None:
         _, mock_fc, _ = mock_components
 
         history = [1.0, 2.0, 3.0]
@@ -102,7 +109,9 @@ class TestChronosTimekeeper:
         mock_fc.forecast.return_value = expected_result
 
         with ChronosTimekeeper() as agent:
-            result = agent.forecast_series(history, prediction_length=5, confidence_level=0.8)
+            result = agent.forecast_series(
+                history, prediction_length=5, confidence_level=0.8, context=user_context
+            )
 
         assert result == expected_result
 
@@ -114,7 +123,9 @@ class TestChronosTimekeeper:
         assert req.prediction_length == 5
         assert req.confidence_level == 0.8
 
-    def test_check_compliance(self, mock_components: tuple[MagicMock, MagicMock, MagicMock]) -> None:
+    def test_check_compliance(
+        self, mock_components: tuple[MagicMock, MagicMock, MagicMock], user_context: UserContext
+    ) -> None:
         # Compliance check uses a passed rule instance, so we don't mock the rule class in the agent init,
         # but we mock the rule instance passed to the method.
 
@@ -138,12 +149,14 @@ class TestChronosTimekeeper:
         mock_rule.validate.return_value = expected_res
 
         with ChronosTimekeeper() as agent:
-            result = agent.check_compliance(evt_target, evt_ref, mock_rule)
+            result = agent.check_compliance(evt_target, evt_ref, mock_rule, context=user_context)
 
         assert result == expected_res
         mock_rule.validate.assert_called_with(evt_target.timestamp, evt_ref.timestamp)
 
-    def test_analyze_causality(self, mock_components: tuple[MagicMock, MagicMock, MagicMock]) -> None:
+    def test_analyze_causality(
+        self, mock_components: tuple[MagicMock, MagicMock, MagicMock], user_context: UserContext
+    ) -> None:
         _, _, mock_causal = mock_components
 
         evt_a = MagicMock(spec=TemporalEvent)
@@ -154,13 +167,13 @@ class TestChronosTimekeeper:
         mock_causal.is_plausible_cause.return_value = True
 
         with ChronosTimekeeper() as agent:
-            result = agent.analyze_causality(evt_a, evt_b)
+            result = agent.analyze_causality(evt_a, evt_b, context=user_context)
 
         assert result is True
         mock_causal.is_plausible_cause.assert_called_with(evt_a, evt_b)
 
     def test_full_workflow_extract_validate_cause(
-        self, mock_components: tuple[MagicMock, MagicMock, MagicMock]
+        self, mock_components: tuple[MagicMock, MagicMock, MagicMock], user_context: UserContext
     ) -> None:
         """
         Test a realistic workflow: Extract 2 events, check causality, then check compliance.
@@ -187,12 +200,14 @@ class TestChronosTimekeeper:
 
         with ChronosTimekeeper() as agent:
             # 2. Run Extraction
-            events = agent.extract_from_text("Start at 10:00. End at 11:00.", datetime(2024, 1, 1, tzinfo=timezone.utc))
+            events = agent.extract_from_text(
+                "Start at 10:00. End at 11:00.", datetime(2024, 1, 1, tzinfo=timezone.utc), context=user_context
+            )
             assert len(events) == 2
 
             # 3. Check Causality (Is Start plausible cause of End?)
             mock_causal.is_plausible_cause.return_value = True
-            is_cause = agent.analyze_causality(events[0], events[1])
+            is_cause = agent.analyze_causality(events[0], events[1], context=user_context)
             assert is_cause is True
             mock_causal.is_plausible_cause.assert_called_with(evt_start, evt_end)
 
@@ -201,11 +216,13 @@ class TestChronosTimekeeper:
             # Mocking the result of validate
             mock_rule.validate.return_value = ComplianceResult(is_compliant=True, drift=datetime.now() - datetime.now())
 
-            res = agent.check_compliance(events[1], events[0], mock_rule)
+            res = agent.check_compliance(events[1], events[0], mock_rule, context=user_context)
             assert res.is_compliant is True
             mock_rule.validate.assert_called_with(evt_end.timestamp, evt_start.timestamp)
 
-    def test_component_error_propagation(self, mock_components: tuple[MagicMock, MagicMock, MagicMock]) -> None:
+    def test_component_error_propagation(
+        self, mock_components: tuple[MagicMock, MagicMock, MagicMock], user_context: UserContext
+    ) -> None:
         """Test that exceptions from sub-components are propagated correctly."""
         mock_ext, _, _ = mock_components
 
@@ -214,9 +231,11 @@ class TestChronosTimekeeper:
 
         with pytest.raises(ValueError, match="Extraction Failed"):
             with ChronosTimekeeper() as agent:
-                agent.extract_from_text("bad text", datetime.now(timezone.utc))
+                agent.extract_from_text("bad text", datetime.now(timezone.utc), context=user_context)
 
-    def test_empty_text_extraction(self, mock_components: tuple[MagicMock, MagicMock, MagicMock]) -> None:
+    def test_empty_text_extraction(
+        self, mock_components: tuple[MagicMock, MagicMock, MagicMock], user_context: UserContext
+    ) -> None:
         """Test behavior with empty input."""
         mock_ext, _, _ = mock_components
 
@@ -224,7 +243,7 @@ class TestChronosTimekeeper:
         mock_ext.extract_events.return_value = []
 
         with ChronosTimekeeper() as agent:
-            result = agent.extract_from_text("", datetime.now(timezone.utc))
+            result = agent.extract_from_text("", datetime.now(timezone.utc), context=user_context)
         assert result == []
 
 
@@ -243,23 +262,27 @@ class TestChronosTimekeeperAsync:
 
             yield mock_ext, mock_fc, mock_causal
 
-    async def test_async_extraction(self, mock_components: tuple[MagicMock, MagicMock, MagicMock]) -> None:
+    async def test_async_extraction(
+        self, mock_components: tuple[MagicMock, MagicMock, MagicMock], user_context: UserContext
+    ) -> None:
         mock_ext, _, _ = mock_components
         mock_ext.extract_events.return_value = []
 
         async with ChronosTimekeeperAsync() as agent:
-            result = await agent.extract_from_text("text", datetime.now(timezone.utc))
+            result = await agent.extract_from_text("text", datetime.now(timezone.utc), context=user_context)
 
         assert result == []
         mock_ext.extract_events.assert_called_once()
 
-    async def test_async_forecast(self, mock_components: tuple[MagicMock, MagicMock, MagicMock]) -> None:
+    async def test_async_forecast(
+        self, mock_components: tuple[MagicMock, MagicMock, MagicMock], user_context: UserContext
+    ) -> None:
         _, mock_fc, _ = mock_components
         expected = MagicMock(spec=ForecastResult)
         mock_fc.forecast.return_value = expected
 
         async with ChronosTimekeeperAsync() as agent:
-            result = await agent.forecast_series([1, 2, 3], 3)
+            result = await agent.forecast_series([1, 2, 3], 3, context=user_context)
 
         assert result == expected
         mock_fc.forecast.assert_called_once()

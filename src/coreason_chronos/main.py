@@ -7,11 +7,21 @@ from typing import Optional
 import click
 from dateparser import parse
 from pydantic import ValidationError
+from coreason_identity.models import UserContext
 
 from coreason_chronos.agent import ChronosTimekeeper
 from coreason_chronos.schemas import TemporalEvent
 from coreason_chronos.utils.logger import logger
 from coreason_chronos.validator import MaxDelayRule
+
+
+def _get_cli_context() -> UserContext:
+    return UserContext(
+        user_id="cli-user",
+        email="cli@coreason.ai",
+        groups=["system"],
+        claims={"source": "cli"},
+    )
 
 
 @click.group()
@@ -59,7 +69,7 @@ def extract(input_text: Optional[str], file: Optional[str], ref_date: str) -> No
     logger.info(f"Extracting events relative to {parsed_date}")
 
     with ChronosTimekeeper(device="cpu") as agent:  # CLI defaults to CPU for now
-        events = agent.extract_from_text(text, parsed_date)
+        events = agent.extract_from_text(text, parsed_date, context=_get_cli_context())
 
     # Output JSON
     output = [event.model_dump(mode="json") for event in events]
@@ -93,7 +103,7 @@ def forecast(
 
     try:
         with ChronosTimekeeper(model_name=model, device="cpu", quantization=quantization) as agent:
-            result = agent.forecast_series(history, steps, confidence)
+            result = agent.forecast_series(history, steps, confidence, context=_get_cli_context())
     except (ValueError, ValidationError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -165,7 +175,7 @@ def validate(target_time: str, reference_time: str, max_delay_hours: float) -> N
     )
 
     with ChronosTimekeeper(device="cpu") as agent:
-        result = agent.check_compliance(t_event, r_event, rule)
+        result = agent.check_compliance(t_event, r_event, rule, context=_get_cli_context())
 
     click.echo(json.dumps(result.model_dump(mode="json"), indent=2))
 

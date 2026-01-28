@@ -4,6 +4,7 @@ from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
+from coreason_identity.models import UserContext
 from matplotlib.figure import Figure
 
 from coreason_chronos.agent import ChronosTimekeeper
@@ -41,7 +42,7 @@ class TestComplexSmoke:
         """
         return ChronosTimekeeper(forecaster=mock_forecaster)
 
-    def test_incident_response_workflow(self, agent: ChronosTimekeeper) -> None:
+    def test_incident_response_workflow(self, agent: ChronosTimekeeper, user_context: UserContext) -> None:
         """
         Scenario:
         1. Parse a clinical narrative to extract events.
@@ -66,7 +67,7 @@ class TestComplexSmoke:
 
         ref_date = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
-        events = agent.extract_from_text(narrative, ref_date)
+        events = agent.extract_from_text(narrative, ref_date, context=user_context)
 
         # Sort by time to ensure easier assertions
         events.sort(key=lambda x: x.timestamp)
@@ -98,11 +99,11 @@ class TestComplexSmoke:
 
         # --- 2. Causality ---
         # Check: Did Enrollment plausible cause Fever? (Yes, Enroll < Fever)
-        is_plausible = agent.analyze_causality(enroll_event, fever_event)
+        is_plausible = agent.analyze_causality(enroll_event, fever_event, context=user_context)
         assert is_plausible is True, "Enrollment should be a plausible cause for Fever (Precedence)"
 
         # Check: Did Report cause Fever? (No, Report > Fever)
-        is_reverse_plausible = agent.analyze_causality(report_event, fever_event)
+        is_reverse_plausible = agent.analyze_causality(report_event, fever_event, context=user_context)
         assert is_reverse_plausible is False, "Report (future) cannot cause Fever (past)"
 
         # --- 3. Compliance ---
@@ -111,7 +112,9 @@ class TestComplexSmoke:
         # Expectation: Non-compliant, drift = 6 hours.
 
         rule = MaxDelayRule(max_delay=timedelta(hours=24), name="24h Reporting Window")
-        compliance: ComplianceResult = agent.check_compliance(target=report_event, reference=fever_event, rule=rule)
+        compliance: ComplianceResult = agent.check_compliance(
+            target=report_event, reference=fever_event, rule=rule, context=user_context
+        )
 
         assert compliance.is_compliant is False, "Should be non-compliant (30h > 24h)"
         assert compliance.drift == timedelta(hours=6)
@@ -124,7 +127,9 @@ class TestComplexSmoke:
         history = [10.0, 12.0, 15.0, 18.0]
         prediction_length = 5
 
-        forecast_result = agent.forecast_series(history=history, prediction_length=prediction_length)
+        forecast_result = agent.forecast_series(
+            history=history, prediction_length=prediction_length, context=user_context
+        )
 
         assert len(forecast_result.median) == prediction_length
         assert forecast_result.confidence_level == 0.9
