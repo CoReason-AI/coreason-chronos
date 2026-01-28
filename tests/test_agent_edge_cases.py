@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from coreason_identity.models import UserContext
 
 from coreason_chronos.agent import ChronosTimekeeper
 from coreason_chronos.schemas import TemporalEvent, TemporalGranularity
@@ -31,7 +32,7 @@ class TestAgentEdgeCases:
     def agent(self, mock_forecaster_pipeline: MagicMock) -> ChronosTimekeeper:
         return ChronosTimekeeper(model_name="mock-model", device="cpu")
 
-    def test_multi_patient_context_isolation(self, agent: ChronosTimekeeper) -> None:
+    def test_multi_patient_context_isolation(self, agent: ChronosTimekeeper, user_context: UserContext) -> None:
         """
         Scenario: Two patients with distinct events.
         Verify that relative anchors resolve to the semantically correct event
@@ -49,7 +50,7 @@ class TestAgentEdgeCases:
         )
         ref_date = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
-        events = agent.extract_from_text(narrative, ref_date)
+        events = agent.extract_from_text(narrative, ref_date, context=user_context)
         events.sort(key=lambda x: x.timestamp)
 
         # Expected:
@@ -72,7 +73,7 @@ class TestAgentEdgeCases:
         assert beta_discharge.timestamp == datetime(2024, 2, 1, tzinfo=timezone.utc)
         assert beta_recovery.timestamp == beta_discharge.timestamp + timedelta(days=3)
 
-    def test_leap_year_boundary_compliance(self, agent: ChronosTimekeeper) -> None:
+    def test_leap_year_boundary_compliance(self, agent: ChronosTimekeeper, user_context: UserContext) -> None:
         """
         Scenario: Event occurs on Feb 28th, deadline is 48 hours later.
         In a leap year (2024), this lands on Feb 29th then March 1st.
@@ -102,7 +103,7 @@ class TestAgentEdgeCases:
             source_snippet="",
         )
 
-        res_ok = agent.check_compliance(report_on_time, event_occurrence, rule)
+        res_ok = agent.check_compliance(report_on_time, event_occurrence, rule, context=user_context)
         assert res_ok.is_compliant is True
         assert res_ok.drift == timedelta(0)
 
@@ -115,7 +116,7 @@ class TestAgentEdgeCases:
             source_snippet="",
         )
 
-        res_fail = agent.check_compliance(report_late, event_occurrence, rule)
+        res_fail = agent.check_compliance(report_late, event_occurrence, rule, context=user_context)
         assert res_fail.is_compliant is False
         assert res_fail.drift == timedelta(seconds=1)
 
@@ -123,7 +124,7 @@ class TestAgentEdgeCases:
         expected_deadline = datetime(2024, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
         assert (start_time + timedelta(hours=48)) == expected_deadline
 
-    def test_causality_impossible_timeline(self, agent: ChronosTimekeeper) -> None:
+    def test_causality_impossible_timeline(self, agent: ChronosTimekeeper, user_context: UserContext) -> None:
         """
         Scenario: Effect happens strictly BEFORE Cause.
         Verify CausalityEngine returns False.
@@ -142,5 +143,5 @@ class TestAgentEdgeCases:
             source_snippet="",
         )
 
-        is_plausible = agent.analyze_causality(cause_event, effect_event)
+        is_plausible = agent.analyze_causality(cause_event, effect_event, context=user_context)
         assert is_plausible is False
