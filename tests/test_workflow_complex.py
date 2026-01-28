@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from coreason_identity.models import UserContext
 from dateutil import tz
 
 from coreason_chronos.agent import ChronosTimekeeper
@@ -29,7 +30,7 @@ class TestWorkflowComplex:
     def agent(self, mock_forecaster_pipeline: MagicMock) -> ChronosTimekeeper:
         return ChronosTimekeeper(model_name="mock-model", device="cpu")
 
-    def test_chained_dependencies(self, agent: ChronosTimekeeper) -> None:
+    def test_chained_dependencies(self, agent: ChronosTimekeeper, user_context: UserContext) -> None:
         """
         Scenario: Daisy-chained events.
         A (Jan 1) -> B (2 days later) -> C (3 days after B) -> D (1 week after C).
@@ -43,7 +44,7 @@ class TestWorkflowComplex:
         )
         ref_date = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
-        events = agent.extract_from_text(narrative, ref_date)
+        events = agent.extract_from_text(narrative, ref_date, context=user_context)
         events.sort(key=lambda x: x.timestamp)
 
         # Expected:
@@ -68,7 +69,7 @@ class TestWorkflowComplex:
         assert p2.timestamp == p1.timestamp + timedelta(days=3)
         assert final.timestamp == p2.timestamp + timedelta(days=7)
 
-    def test_timezone_crossing_compliance(self, agent: ChronosTimekeeper) -> None:
+    def test_timezone_crossing_compliance(self, agent: ChronosTimekeeper, user_context: UserContext) -> None:
         """
         Scenario:
         Event A: Tokyo Time (JST, UTC+9).
@@ -110,13 +111,13 @@ class TestWorkflowComplex:
 
         rule = MaxDelayRule(max_delay=timedelta(hours=24), name="24h Cross-Zone")
 
-        result = agent.check_compliance(target, reference, rule)
+        result = agent.check_compliance(target, reference, rule, context=user_context)
 
         # Should be exactly compliant (Drift = 0)
         assert result.is_compliant is True
         assert abs(result.drift.total_seconds()) < 1  # Float tolerance
 
-    def test_ambiguous_anchors(self, agent: ChronosTimekeeper) -> None:
+    def test_ambiguous_anchors(self, agent: ChronosTimekeeper, user_context: UserContext) -> None:
         """
         Scenario: Recurring event names ("Scan") acting as anchors.
         "Patient had a Scan on Jan 1st. Results came 2 days after the Scan.
@@ -133,7 +134,7 @@ class TestWorkflowComplex:
         )
         ref_date = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
-        events = agent.extract_from_text(narrative, ref_date)
+        events = agent.extract_from_text(narrative, ref_date, context=user_context)
         events.sort(key=lambda x: x.timestamp)
 
         # Expected:

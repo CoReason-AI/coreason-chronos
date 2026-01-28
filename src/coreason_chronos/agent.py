@@ -1,9 +1,11 @@
 # Prosperity Public License 3.0
 from datetime import datetime
+from functools import partial
 from typing import Any, List, Optional, cast
 
 import anyio
 import httpx
+from coreason_identity.models import UserContext
 
 from coreason_chronos.causality import CausalityEngine
 from coreason_chronos.forecaster import DEFAULT_CHRONOS_MODEL, ChronosForecaster
@@ -66,23 +68,34 @@ class ChronosTimekeeperAsync:
         if self._internal_client:
             await self._client.aclose()
 
-    async def extract_from_text(self, text: str, reference_date: datetime) -> List[TemporalEvent]:
+    async def extract_from_text(
+        self, text: str, reference_date: datetime, *, context: UserContext
+    ) -> List[TemporalEvent]:
         """
         Extracts a timeline of events from unstructured text (Longitudinal Reconstruction).
 
         Args:
             text: The unstructured text to process.
             reference_date: The anchor date for relative time calculations.
+            context: The user context for identity verification.
 
         Returns:
             A list of resolved TemporalEvents, sorted chronologically.
         """
-        logger.info(f"Agent: Extracting timeline from text (Length: {len(text)} chars)")
+        logger.info(
+            f"Agent: Extracting timeline from text (Length: {len(text)} chars)",
+            user_id=context.user_id,
+        )
         result = await anyio.to_thread.run_sync(self.extractor.extract_events, text, reference_date)
         return cast(List[TemporalEvent], result)
 
     async def forecast_series(
-        self, history: List[float], prediction_length: int, confidence_level: float = 0.9
+        self,
+        history: List[float],
+        prediction_length: int,
+        confidence_level: float = 0.9,
+        *,
+        context: UserContext,
     ) -> ForecastResult:
         """
         Generates a forecast for the given time series history (Zero-Shot Prediction).
@@ -91,11 +104,15 @@ class ChronosTimekeeperAsync:
             history: List of historical values.
             prediction_length: Number of steps to forecast.
             confidence_level: Probability for the prediction interval (default 0.9).
+            context: The user context for identity verification.
 
         Returns:
             ForecastResult containing predictions and intervals.
         """
-        logger.info(f"Agent: Forecasting series (History: {len(history)}, Horizon: {prediction_length})")
+        logger.info(
+            f"Agent: Forecasting series (History: {len(history)}, Horizon: {prediction_length})",
+            user_id=context.user_id,
+        )
         request = ForecastRequest(
             history=history,
             prediction_length=prediction_length,
@@ -105,7 +122,7 @@ class ChronosTimekeeperAsync:
         return cast(ForecastResult, result)
 
     async def check_compliance(
-        self, target: TemporalEvent, reference: TemporalEvent, rule: ValidationRule
+        self, target: TemporalEvent, reference: TemporalEvent, rule: ValidationRule, *, context: UserContext
     ) -> ComplianceResult:
         """
         Validates a compliance rule between two events.
@@ -114,28 +131,34 @@ class ChronosTimekeeperAsync:
             target: The target event (e.g., Report Submission).
             reference: The reference event (e.g., Adverse Event Occurrence).
             rule: The validation rule to apply (e.g., MaxDelayRule).
+            context: The user context for identity verification.
 
         Returns:
             ComplianceResult indicating pass/fail and drift.
         """
         logger.info(
             f"Agent: Checking compliance '{rule.__class__.__name__}' "
-            f"between '{target.description}' and '{reference.description}'"
+            f"between '{target.description}' and '{reference.description}'",
+            user_id=context.user_id,
         )
         return rule.validate(target.timestamp, reference.timestamp)
 
-    async def analyze_causality(self, cause: TemporalEvent, effect: TemporalEvent) -> bool:
+    async def analyze_causality(self, cause: TemporalEvent, effect: TemporalEvent, *, context: UserContext) -> bool:
         """
         Determines if a causal relationship is temporally plausible.
 
         Args:
             cause: The potential cause event.
             effect: The potential effect event.
+            context: The user context for identity verification.
 
         Returns:
             True if the cause plausibly precedes or overlaps the effect, False otherwise.
         """
-        logger.info(f"Agent: Analyzing causality between '{cause.description}' and '{effect.description}'")
+        logger.info(
+            f"Agent: Analyzing causality between '{cause.description}' and '{effect.description}'",
+            user_id=context.user_id,
+        )
         return self.causality.is_plausible_cause(cause, effect)
 
 
@@ -170,28 +193,42 @@ class ChronosTimekeeper:
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         anyio.run(self._async.__aexit__, exc_type, exc_val, exc_tb)
 
-    def extract_from_text(self, text: str, reference_date: datetime) -> List[TemporalEvent]:
+    def extract_from_text(self, text: str, reference_date: datetime, *, context: UserContext) -> List[TemporalEvent]:
         """Synchronous wrapper for extract_from_text."""
-        return cast(List[TemporalEvent], anyio.run(self._async.extract_from_text, text, reference_date))
+        return cast(
+            List[TemporalEvent],
+            anyio.run(partial(self._async.extract_from_text, text, reference_date, context=context)),
+        )
 
     def forecast_series(
-        self, history: List[float], prediction_length: int, confidence_level: float = 0.9
+        self, history: List[float], prediction_length: int, confidence_level: float = 0.9, *, context: UserContext
     ) -> ForecastResult:
         """Synchronous wrapper for forecast_series."""
         return cast(
             ForecastResult,
-            anyio.run(self._async.forecast_series, history, prediction_length, confidence_level),
+            anyio.run(
+                partial(
+                    self._async.forecast_series,
+                    history,
+                    prediction_length,
+                    confidence_level,
+                    context=context,
+                )
+            ),
         )
 
     def check_compliance(
-        self, target: TemporalEvent, reference: TemporalEvent, rule: ValidationRule
+        self, target: TemporalEvent, reference: TemporalEvent, rule: ValidationRule, *, context: UserContext
     ) -> ComplianceResult:
         """Synchronous wrapper for check_compliance."""
-        return cast(ComplianceResult, anyio.run(self._async.check_compliance, target, reference, rule))
+        return cast(
+            ComplianceResult,
+            anyio.run(partial(self._async.check_compliance, target, reference, rule, context=context)),
+        )
 
-    def analyze_causality(self, cause: TemporalEvent, effect: TemporalEvent) -> bool:
+    def analyze_causality(self, cause: TemporalEvent, effect: TemporalEvent, *, context: UserContext) -> bool:
         """Synchronous wrapper for analyze_causality."""
-        return cast(bool, anyio.run(self._async.analyze_causality, cause, effect))
+        return cast(bool, anyio.run(partial(self._async.analyze_causality, cause, effect, context=context)))
 
     # Expose underlying components for compatibility if needed, or deprecate direct access.
     # The existing tests access agent.forecaster directly.
