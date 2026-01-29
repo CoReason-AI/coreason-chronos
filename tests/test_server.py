@@ -1,13 +1,13 @@
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
 from typing import AsyncGenerator
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
-from httpx import AsyncClient, ASGITransport
+import pytest
+from httpx import ASGITransport, AsyncClient
 
-from coreason_chronos.server import app, lifespan
 from coreason_chronos.schemas import TemporalEvent, TemporalGranularity
+from coreason_chronos.server import app, lifespan
 
 # Mock data
 MOCK_EVENT = TemporalEvent(
@@ -71,9 +71,7 @@ async def test_health_check(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_extract_endpoint(client: AsyncClient) -> None:
-    response = await client.post(
-        "/extract", json={"text": "Test text", "ref_date": "2024-01-01T00:00:00Z"}
-    )
+    response = await client.post("/extract", json={"text": "Test text", "ref_date": "2024-01-01T00:00:00Z"})
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
@@ -141,6 +139,7 @@ async def test_forecast_endpoint_error(client: AsyncClient) -> None:
         assert "Simulated forecast error" in response.json()["detail"]
     finally:
         app.state.timekeeper.forecast_series.side_effect = None
+
 
 @pytest.mark.asyncio
 async def test_lifespan() -> None:
