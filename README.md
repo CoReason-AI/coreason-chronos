@@ -44,7 +44,52 @@ It provides three critical capabilities:
 pip install coreason-chronos
 ```
 
-## Usage
+## Microservice Mode (Server)
+
+`coreason-chronos` can run as a high-performance REST API, utilizing the **FastAPI** framework and serving pre-loaded **Amazon Chronos-T5** models.
+
+### Running with Docker
+
+The Docker image comes with the model baked-in, ensuring offline readiness.
+
+```bash
+# Build the image
+docker build -t coreason/chronos:latest .
+
+# Run the container (Service listens on port 8000)
+docker run -p 8000:8000 coreason/chronos:latest
+```
+
+### API Usage
+
+#### Health Check
+```bash
+curl http://localhost:8000/health
+# {"status": "ready", "model": "amazon/chronos-t5-tiny", "device": "cpu"}
+```
+
+#### Extraction
+```bash
+curl -X POST http://localhost:8000/extract \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Patient admitted Jan 1st 2024. Discharged 3 days later.",
+    "ref_date": "2024-01-01T00:00:00Z"
+  }'
+```
+
+#### Forecasting
+```bash
+curl -X POST http://localhost:8000/forecast \
+  -H "Content-Type: application/json" \
+  -d '{
+    "history": [10, 20, 30, 40, 50],
+    "prediction_length": 3,
+    "confidence_level": 0.9
+  }'
+```
+
+## Library Usage
 
 ### 1. Initialize the Timekeeper
 
@@ -54,7 +99,7 @@ The `ChronosTimekeeper` is the main entry point for the library.
 from datetime import datetime, timezone
 from coreason_chronos.agent import ChronosTimekeeper
 
-# Initialize the agent
+# Initialize the agent (automatically wraps Async logic)
 agent = ChronosTimekeeper()
 ```
 
