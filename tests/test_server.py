@@ -1,13 +1,13 @@
-from datetime import datetime, timezone
-from typing import Generator
+import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import datetime, timezone
+from typing import AsyncGenerator
 from uuid import uuid4
 
-import pytest
-from fastapi.testclient import TestClient
+from httpx import AsyncClient, ASGITransport
 
+from coreason_chronos.server import app, lifespan
 from coreason_chronos.schemas import TemporalEvent, TemporalGranularity
-from coreason_chronos.server import app
 
 # Mock data
 MOCK_EVENT = TemporalEvent(
@@ -20,7 +20,7 @@ MOCK_EVENT = TemporalEvent(
 
 
 @pytest.fixture
-def client() -> Generator[TestClient, None, None]:
+async def client() -> AsyncGenerator[AsyncClient, None]:
     # Patch ChronosTimekeeperAsync to avoid loading model
     with patch("coreason_chronos.server.ChronosTimekeeperAsync") as MockTimekeeper:
         # Mock instance
@@ -47,12 +47,20 @@ def client() -> Generator[TestClient, None, None]:
             )
         )
 
-        with TestClient(app) as c:
+        # Manually set state to bypass lifespan execution during test
+        app.state.timekeeper = mock_instance
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             yield c
 
+        # Cleanup
+        if hasattr(app.state, "timekeeper"):
+            del app.state.timekeeper
 
-def test_health_check(client: TestClient) -> None:
-    response = client.get("/health")
+
+@pytest.mark.asyncio
+async def test_health_check(client: AsyncClient) -> None:
+    response = await client.get("/health")
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
@@ -61,8 +69,11 @@ def test_health_check(client: TestClient) -> None:
     }
 
 
-def test_extract_endpoint(client: TestClient) -> None:
-    response = client.post("/extract", json={"text": "Test text", "ref_date": "2024-01-01T00:00:00Z"})
+@pytest.mark.asyncio
+async def test_extract_endpoint(client: AsyncClient) -> None:
+    response = await client.post(
+        "/extract", json={"text": "Test text", "ref_date": "2024-01-01T00:00:00Z"}
+    )
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
@@ -72,13 +83,15 @@ def test_extract_endpoint(client: TestClient) -> None:
     assert "timestamp" in data[0]
 
 
-def test_extract_endpoint_no_date(client: TestClient) -> None:
-    response = client.post("/extract", json={"text": "Test text"})
+@pytest.mark.asyncio
+async def test_extract_endpoint_no_date(client: AsyncClient) -> None:
+    response = await client.post("/extract", json={"text": "Test text"})
     assert response.status_code == 200
 
 
-def test_forecast_endpoint(client: TestClient) -> None:
-    response = client.post(
+@pytest.mark.asyncio
+async def test_forecast_endpoint(client: AsyncClient) -> None:
+    response = await client.post(
         "/forecast",
         json={"history": [1, 2, 3], "prediction_length": 1, "confidence_level": 0.9},
     )
@@ -87,8 +100,9 @@ def test_forecast_endpoint(client: TestClient) -> None:
     assert data["median"] == [10.0]
 
 
-def test_forecast_endpoint_invalid(client: TestClient) -> None:
-    response = client.post(
+@pytest.mark.asyncio
+async def test_forecast_endpoint_invalid(client: AsyncClient) -> None:
+    response = await client.post(
         "/forecast",
         json={
             "history": [],  # Invalid
@@ -99,26 +113,47 @@ def test_forecast_endpoint_invalid(client: TestClient) -> None:
     assert response.status_code == 422  # Validation error
 
 
-def test_extract_endpoint_error(client: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_extract_endpoint_error(client: AsyncClient) -> None:
     # Mock extract to raise exception
-    with patch(
-        "coreason_chronos.server.app.state.timekeeper.extract_from_text",
-        side_effect=Exception("Simulated error"),
-    ):
-        response = client.post("/extract", json={"text": "Fail me"})
+    app.state.timekeeper.extract_from_text.side_effect = Exception("Simulated error")
+
+    try:
+        response = await client.post("/extract", json={"text": "Fail me"})
         assert response.status_code == 500
         assert "Simulated error" in response.json()["detail"]
+    finally:
+        # Reset side effect
+        app.state.timekeeper.extract_from_text.side_effect = None
 
 
-def test_forecast_endpoint_error(client: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_forecast_endpoint_error(client: AsyncClient) -> None:
     # Mock forecast to raise exception
-    with patch(
-        "coreason_chronos.server.app.state.timekeeper.forecast_series",
-        side_effect=Exception("Simulated forecast error"),
-    ):
-        response = client.post(
+    app.state.timekeeper.forecast_series.side_effect = Exception("Simulated forecast error")
+
+    try:
+        response = await client.post(
             "/forecast",
             json={"history": [1, 2], "prediction_length": 1, "confidence_level": 0.9},
         )
         assert response.status_code == 500
         assert "Simulated forecast error" in response.json()["detail"]
+    finally:
+        app.state.timekeeper.forecast_series.side_effect = None
+
+@pytest.mark.asyncio
+async def test_lifespan() -> None:
+    # Test the lifespan context manager
+    with patch("coreason_chronos.server.ChronosTimekeeperAsync") as MockTimekeeper:
+        mock_instance = MockTimekeeper.return_value
+        mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_instance.__aexit__ = AsyncMock(return_value=None)
+
+        # Test the lifespan
+        async with lifespan(app):
+            assert hasattr(app.state, "timekeeper")
+            assert app.state.timekeeper == mock_instance
+            mock_instance.__aenter__.assert_called_once()
+
+        mock_instance.__aexit__.assert_called_once()
