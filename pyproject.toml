@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "coreason_chronos"
-version = "0.2.1"
+version = "0.3.0"
 description = "coreason-chronos"
 authors = ["Gowtham A Rao <gowtham.rao@coreason.ai>"]
 license = "Prosperity-3.0"
