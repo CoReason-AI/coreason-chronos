@@ -1,7 +1,7 @@
 # Prosperity Public License 3.0
 from datetime import datetime
 from functools import partial
-from typing import Any, List, Optional, cast
+from typing import Any, List, Optional
 
 import anyio
 import httpx
