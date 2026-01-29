@@ -1,11 +1,13 @@
-import pytest
-from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
+from typing import Generator
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
-from coreason_chronos.server import app
+import pytest
+from fastapi.testclient import TestClient
+
 from coreason_chronos.schemas import TemporalEvent, TemporalGranularity
+from coreason_chronos.server import app
 
 # Mock data
 MOCK_EVENT = TemporalEvent(
@@ -13,11 +15,12 @@ MOCK_EVENT = TemporalEvent(
     description="Test Event",
     timestamp=datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc),
     granularity=TemporalGranularity.PRECISE,
-    source_snippet="Test Event at 10am"
+    source_snippet="Test Event at 10am",
 )
 
+
 @pytest.fixture
-def client():
+def client() -> Generator[TestClient, None, None]:
     # Patch ChronosTimekeeperAsync to avoid loading model
     with patch("coreason_chronos.server.ChronosTimekeeperAsync") as MockTimekeeper:
         # Mock instance
@@ -29,36 +32,37 @@ def client():
 
         mock_instance.extract_from_text = AsyncMock(return_value=[MOCK_EVENT])
 
-        mock_instance.forecast_series = AsyncMock(return_value=MagicMock(
-            median=[10.0],
-            lower_bound=[5.0],
-            upper_bound=[15.0],
-            confidence_level=0.9,
-            model_dump=lambda **kwargs: {
-                "median": [10.0],
-                "lower_bound": [5.0],
-                "upper_bound": [15.0],
-                "confidence_level": 0.9
-            }
-        ))
+        mock_instance.forecast_series = AsyncMock(
+            return_value=MagicMock(
+                median=[10.0],
+                lower_bound=[5.0],
+                upper_bound=[15.0],
+                confidence_level=0.9,
+                model_dump=lambda **kwargs: {
+                    "median": [10.0],
+                    "lower_bound": [5.0],
+                    "upper_bound": [15.0],
+                    "confidence_level": 0.9,
+                },
+            )
+        )
 
         with TestClient(app) as c:
             yield c
 
-def test_health_check(client):
+
+def test_health_check(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
         "model": "amazon/chronos-t5-tiny",
-        "device": "cpu"
+        "device": "cpu",
     }
 
-def test_extract_endpoint(client):
-    response = client.post("/extract", json={
-        "text": "Test text",
-        "ref_date": "2024-01-01T00:00:00Z"
-    })
+
+def test_extract_endpoint(client: TestClient) -> None:
+    response = client.post("/extract", json={"text": "Test text", "ref_date": "2024-01-01T00:00:00Z"})
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
@@ -67,44 +71,54 @@ def test_extract_endpoint(client):
     # Check serialization
     assert "timestamp" in data[0]
 
-def test_extract_endpoint_no_date(client):
-    response = client.post("/extract", json={
-        "text": "Test text"
-    })
+
+def test_extract_endpoint_no_date(client: TestClient) -> None:
+    response = client.post("/extract", json={"text": "Test text"})
     assert response.status_code == 200
 
-def test_forecast_endpoint(client):
-    response = client.post("/forecast", json={
-        "history": [1, 2, 3],
-        "prediction_length": 1,
-        "confidence_level": 0.9
-    })
+
+def test_forecast_endpoint(client: TestClient) -> None:
+    response = client.post(
+        "/forecast",
+        json={"history": [1, 2, 3], "prediction_length": 1, "confidence_level": 0.9},
+    )
     assert response.status_code == 200
     data = response.json()
     assert data["median"] == [10.0]
 
-def test_forecast_endpoint_invalid(client):
-    response = client.post("/forecast", json={
-        "history": [], # Invalid
-        "prediction_length": 1,
-        "confidence_level": 0.9
-    })
-    assert response.status_code == 422 # Validation error
 
-def test_extract_endpoint_error(client):
+def test_forecast_endpoint_invalid(client: TestClient) -> None:
+    response = client.post(
+        "/forecast",
+        json={
+            "history": [],  # Invalid
+            "prediction_length": 1,
+            "confidence_level": 0.9,
+        },
+    )
+    assert response.status_code == 422  # Validation error
+
+
+def test_extract_endpoint_error(client: TestClient) -> None:
     # Mock extract to raise exception
-    with patch("coreason_chronos.server.app.state.timekeeper.extract_from_text", side_effect=Exception("Simulated error")):
+    with patch(
+        "coreason_chronos.server.app.state.timekeeper.extract_from_text",
+        side_effect=Exception("Simulated error"),
+    ):
         response = client.post("/extract", json={"text": "Fail me"})
         assert response.status_code == 500
         assert "Simulated error" in response.json()["detail"]
 
-def test_forecast_endpoint_error(client):
+
+def test_forecast_endpoint_error(client: TestClient) -> None:
     # Mock forecast to raise exception
-    with patch("coreason_chronos.server.app.state.timekeeper.forecast_series", side_effect=Exception("Simulated forecast error")):
-        response = client.post("/forecast", json={
-            "history": [1, 2],
-            "prediction_length": 1,
-            "confidence_level": 0.9
-        })
+    with patch(
+        "coreason_chronos.server.app.state.timekeeper.forecast_series",
+        side_effect=Exception("Simulated forecast error"),
+    ):
+        response = client.post(
+            "/forecast",
+            json={"history": [1, 2], "prediction_length": 1, "confidence_level": 0.9},
+        )
         assert response.status_code == 500
         assert "Simulated forecast error" in response.json()["detail"]

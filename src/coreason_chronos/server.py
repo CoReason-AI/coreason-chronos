@@ -1,19 +1,21 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import List, Optional, Any
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from coreason_identity.models import UserContext
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from coreason_chronos.agent import ChronosTimekeeperAsync
-from coreason_chronos.schemas import ForecastRequest, ForecastResult
 from coreason_chronos.forecaster import DEFAULT_CHRONOS_MODEL
-from coreason_identity.models import UserContext
+from coreason_chronos.schemas import ForecastRequest, ForecastResult
+
 
 # Define request model for extraction
 class ExtractionRequest(BaseModel):
     text: str
     ref_date: Optional[datetime] = None
+
 
 # Default context for API operations
 API_USER_CONTEXT = UserContext(
@@ -21,11 +23,12 @@ API_USER_CONTEXT = UserContext(
     email="api@coreason.ai",
     groups=[],
     scopes=[],
-    claims={}
+    claims={},
 )
 
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Initialize the timekeeper on startup
     # Using default model (amazon/chronos-t5-tiny) and cpu device
     timekeeper = ChronosTimekeeperAsync(
@@ -42,7 +45,9 @@ async def lifespan(app: FastAPI):
     # Cleanup
     await timekeeper.__aexit__(None, None, None)
 
+
 app = FastAPI(lifespan=lifespan, title="Temporal Intelligence Microservice")
+
 
 @app.post("/extract")
 async def extract_endpoint(request: ExtractionRequest) -> List[Any]:
@@ -53,17 +58,16 @@ async def extract_endpoint(request: ExtractionRequest) -> List[Any]:
 
     try:
         events = await timekeeper.extract_from_text(
-            text=request.text,
-            reference_date=ref_date,
-            context=API_USER_CONTEXT
+            text=request.text, reference_date=ref_date, context=API_USER_CONTEXT
         )
         # Return serialized events as requested
         return [event.model_dump(mode="json") for event in events]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
 
 @app.post("/forecast", response_model=ForecastResult)
-async def forecast_endpoint(request: ForecastRequest):
+async def forecast_endpoint(request: ForecastRequest) -> ForecastResult:
     timekeeper: ChronosTimekeeperAsync = app.state.timekeeper
 
     try:
@@ -71,16 +75,13 @@ async def forecast_endpoint(request: ForecastRequest):
             history=request.history,
             prediction_length=request.prediction_length,
             confidence_level=request.confidence_level,
-            context=API_USER_CONTEXT
+            context=API_USER_CONTEXT,
         )
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
 
 @app.get("/health")
-async def health_check():
-    return {
-        "status": "ready",
-        "model": DEFAULT_CHRONOS_MODEL,
-        "device": "cpu"
-    }
+async def health_check() -> Dict[str, str]:
+    return {"status": "ready", "model": DEFAULT_CHRONOS_MODEL, "device": "cpu"}

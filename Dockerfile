@@ -39,10 +39,8 @@ WORKDIR /home/appuser/app
 # Copy the wheel from the builder stage
 COPY --from=builder /wheels /wheels
 
-# Install the application wheel
-RUN pip install --no-cache-dir /wheels/*.whl
-
-# Pre-download the default Chronos model to bake it into the image
-RUN python -c "from chronos import ChronosPipeline; ChronosPipeline.from_pretrained('amazon/chronos-t5-tiny', device_map='cpu', torch_dtype='auto')"
+# Install the application wheel and pre-download the default Chronos model
+RUN pip install --no-cache-dir /wheels/*.whl && \
+    python -c "from chronos import ChronosPipeline; ChronosPipeline.from_pretrained('amazon/chronos-t5-tiny', device_map='cpu', torch_dtype='auto')"
 
 CMD ["uvicorn", "coreason_chronos.server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
