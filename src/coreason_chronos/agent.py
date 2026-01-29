@@ -1,7 +1,7 @@
 # Prosperity Public License 3.0
 from datetime import datetime
 from functools import partial
-from typing import Any, List, Optional, cast
+from typing import Any, List, Optional
 
 import anyio
 import httpx
@@ -87,7 +87,7 @@ class ChronosTimekeeperAsync:
             user_id=context.user_id,
         )
         result = await anyio.to_thread.run_sync(self.extractor.extract_events, text, reference_date)
-        return cast(List[TemporalEvent], result)
+        return result
 
     async def forecast_series(
         self,
@@ -119,7 +119,7 @@ class ChronosTimekeeperAsync:
             confidence_level=confidence_level,
         )
         result = await anyio.to_thread.run_sync(self.forecaster.forecast, request)
-        return cast(ForecastResult, result)
+        return result
 
     async def check_compliance(
         self, target: TemporalEvent, reference: TemporalEvent, rule: ValidationRule, *, context: UserContext
@@ -195,40 +195,31 @@ class ChronosTimekeeper:
 
     def extract_from_text(self, text: str, reference_date: datetime, *, context: UserContext) -> List[TemporalEvent]:
         """Synchronous wrapper for extract_from_text."""
-        return cast(
-            List[TemporalEvent],
-            anyio.run(partial(self._async.extract_from_text, text, reference_date, context=context)),
-        )
+        return anyio.run(partial(self._async.extract_from_text, text, reference_date, context=context))
 
     def forecast_series(
         self, history: List[float], prediction_length: int, confidence_level: float = 0.9, *, context: UserContext
     ) -> ForecastResult:
         """Synchronous wrapper for forecast_series."""
-        return cast(
-            ForecastResult,
-            anyio.run(
-                partial(
-                    self._async.forecast_series,
-                    history,
-                    prediction_length,
-                    confidence_level,
-                    context=context,
-                )
-            ),
+        return anyio.run(
+            partial(
+                self._async.forecast_series,
+                history,
+                prediction_length,
+                confidence_level,
+                context=context,
+            )
         )
 
     def check_compliance(
         self, target: TemporalEvent, reference: TemporalEvent, rule: ValidationRule, *, context: UserContext
     ) -> ComplianceResult:
         """Synchronous wrapper for check_compliance."""
-        return cast(
-            ComplianceResult,
-            anyio.run(partial(self._async.check_compliance, target, reference, rule, context=context)),
-        )
+        return anyio.run(partial(self._async.check_compliance, target, reference, rule, context=context))
 
     def analyze_causality(self, cause: TemporalEvent, effect: TemporalEvent, *, context: UserContext) -> bool:
         """Synchronous wrapper for analyze_causality."""
-        return cast(bool, anyio.run(partial(self._async.analyze_causality, cause, effect, context=context)))
+        return anyio.run(partial(self._async.analyze_causality, cause, effect, context=context))
 
     # Expose underlying components for compatibility if needed, or deprecate direct access.
     # The existing tests access agent.forecaster directly.
