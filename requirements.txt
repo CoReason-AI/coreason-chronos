@@ -9,3 +9,9 @@ python-dateutil
 rapidfuzz
 torch
 transformers
+fastapi
+uvicorn[standard]
+coreason-identity
+anyio
+httpx
+aiofiles
